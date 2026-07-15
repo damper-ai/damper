@@ -70,9 +70,11 @@ def test_policy_is_frozen() -> None:
         policy.max_attempts = 5  # type: ignore[misc]
 
 
-def test_resilient_stub_raises_not_implemented() -> None:
-    with pytest.raises(NotImplementedError):
+def test_resilient_rejects_unsupported_client() -> None:
+    # resilient() is implemented as of SESSION 6. A plain object exposes no
+    # with_options(), so Damper cannot take retry ownership and refuses to wrap.
+    with pytest.raises(RetryOwnershipError):
         resilient(object())
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(RetryOwnershipError):
         resilient(object(), policy=Policy())

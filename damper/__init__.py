@@ -155,14 +155,7 @@ class Policy:
     classifier: ErrorClassifier | None = None
 
 
-def resilient(client: Any, *, policy: Policy | None = None) -> Any:
-    """Wrap an Anthropic client with Damper's owned retry executor.
-
-    Not implemented in the SESSION 1 scaffold. Later sessions will return a
-    proxy exposing the same interface as ``client`` while intercepting
-    ``messages.create`` and ``messages.stream`` (sync and async).
-    """
-
-    raise NotImplementedError(
-        "damper.resilient() is not implemented in the SESSION 1 scaffold."
-    )
+# ``resilient`` is implemented in ``damper._wrapper``. It is imported at the end
+# of this module (after ``Policy`` and the exception classes are defined) so the
+# wrapper -> executor -> ``damper`` import chain resolves without a cycle.
+from damper._wrapper import resilient as resilient  # noqa: E402
