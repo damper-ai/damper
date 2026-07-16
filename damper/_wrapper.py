@@ -43,6 +43,9 @@ from damper import Policy, RetryOwnershipError
 from damper._executor import execute, execute_async
 from damper.budget import RetryBudget
 
+# Telemetry provider label for wrapped Anthropic calls (SPEC section 18.2).
+_PROVIDER = "anthropic"
+
 # --------------------------------------------------------------------------- #
 # Policy validation (SPEC section 8.2), enforced at wrap time.
 # --------------------------------------------------------------------------- #
@@ -567,6 +570,7 @@ class _SyncDamperStreamManager:
             request=self._request,
             retry_after_extractor=self._extractor,
             stream_started_probe=lambda: state.started,
+            provider=_PROVIDER,
         )
         self._proxy = _SyncDamperStream(result.response, result.metadata)
         return self._proxy
@@ -609,6 +613,7 @@ class _AsyncDamperStreamManager:
             request=self._request,
             retry_after_extractor=self._extractor,
             stream_started_probe=lambda: state.started,
+            provider=_PROVIDER,
         )
         self._proxy = _AsyncDamperStream(result.response, result.metadata)
         return self._proxy
@@ -656,6 +661,7 @@ class _SyncWrappedMessages:
             budget=self._damper_budget,
             request=kwargs,
             retry_after_extractor=self._damper_extractor,
+            provider=_PROVIDER,
         )
         _attach_metadata(result.response, result.metadata)
         return result.response
@@ -710,6 +716,7 @@ class _AsyncWrappedMessages:
             budget=self._damper_budget,
             request=kwargs,
             retry_after_extractor=self._damper_extractor,
+            provider=_PROVIDER,
         )
         _attach_metadata(result.response, result.metadata)
         return result.response

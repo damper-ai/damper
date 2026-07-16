@@ -66,6 +66,26 @@ from damper.cost import (
     estimate_retry_cost_usd,
     would_exceed_retry_cost_ceiling,
 )
+from damper.telemetry import (
+    OUTCOME_BUDGET_EXHAUSTED,
+    OUTCOME_COST_CEILING,
+    OUTCOME_NOT_RETRYABLE,
+    OUTCOME_OK,
+    OUTCOME_RETRIES_EXHAUSTED,
+    OUTCOME_STREAM_STARTED_FAILURE,
+    AttemptRecorder,
+    TraceFactory,
+    default_trace_factory,
+)
+
+# Telemetry outcome for each terminal Damper exception the executor raises. This
+# is a pure annotation for the request span; it does not participate in the
+# retry decision.
+_OUTCOME_BY_EXCEPTION: dict[type[DamperError], str] = {
+    RetriesExhausted: OUTCOME_RETRIES_EXHAUSTED,
+    RetryBudgetExhausted: OUTCOME_BUDGET_EXHAUSTED,
+    RetryCostCeilingHit: OUTCOME_COST_CEILING,
+}
 
 
 @dataclass(frozen=True)
@@ -124,6 +144,9 @@ class _Decision:
     action: _Action
     sleep_s: float = 0.0
     retry_cost_so_far_usd: float | None = None
+    # Telemetry outcome annotation for a SURFACE decision. Pure annotation of an
+    # already-made decision; it does not participate in decision making.
+    outcome: str | None = None
 
 
 def _no_retry_after(error: BaseException) -> float | None:
@@ -230,13 +253,23 @@ def _plan_after_failure(
 
     # NOT_RETRYABLE and AMBIGUOUS both surface the original error, never retry --
     # even if a custom classifier returns AMBIGUOUS with stream_started False.
+    # AMBIGUOUS is only reported as stream_started_failure when content actually
+    # streamed; a pre-stream AMBIGUOUS is a plain not_retryable outcome and must
+    # not falsely claim streaming started.
     if error_class is not ErrorClass.RETRYABLE:
-        return _Decision(_Action.SURFACE)
+        surfaced_outcome = (
+            OUTCOME_STREAM_STARTED_FAILURE
+            if error_class is ErrorClass.AMBIGUOUS and stream_started
+            else OUTCOME_NOT_RETRYABLE
+        )
+        return _Decision(_Action.SURFACE, outcome=surfaced_outcome)
 
     # Retryable, but content already streamed to the caller: surface, never
     # replay (SPEC.md section 15).
     if stream_started:
-        return _Decision(_Action.SURFACE)
+        return _Decision(
+            _Action.SURFACE, outcome=OUTCOME_STREAM_STARTED_FAILURE
+        )
 
     # Final allowed attempt failed retryably: no cost check, no budget
     # acquisition, no RNG, no sleep -- just surface exhaustion.
@@ -281,7 +314,7 @@ def _plan_after_failure(
     # Budget: the single atomic authorization + accounting operation.
     if not budget.try_acquire_retry():
         if policy.on_budget_exhausted == "passthrough":
-            return _Decision(_Action.SURFACE)
+            return _Decision(_Action.SURFACE, outcome=OUTCOME_BUDGET_EXHAUSTED)
         snapshot = budget.snapshot()
         raise RetryBudgetExhausted(
             attempts=attempt_number,
@@ -307,6 +340,25 @@ def _plan_after_failure(
         _Action.RETRY,
         sleep_s=sleep_s,
         retry_cost_so_far_usd=new_retry_cost,
+    )
+
+
+def _record_failed_attempt(
+    attempt_recorder: AttemptRecorder,
+    outcome: AttemptOutcome,
+    *,
+    backoff_s: float | None,
+) -> None:
+    """Copy a failed attempt's summary onto its telemetry span.
+
+    Pure telemetry side-effect from data the executor already computed; it never
+    influences the retry decision.
+    """
+    attempt_recorder.record_failure(
+        error_class=outcome.error_class,
+        status_code=outcome.status_code,
+        latency_s=outcome.latency_s,
+        backoff_s=backoff_s,
     )
 
 
@@ -354,6 +406,8 @@ def execute(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     rng: Callable[[], float] = random.random,
+    provider: str | None = None,
+    trace_factory: TraceFactory = default_trace_factory,
 ) -> ExecutionResult:
     """Run a synchronous logical request through the owned retry loop.
 
@@ -362,51 +416,87 @@ def execute(
     ``Exception`` subclasses are treated as provider failures; ``KeyboardInterrupt``,
     ``SystemExit``, and other ``BaseException``\\s propagate immediately with no
     retry, budget withdrawal, cost accounting, or sleep.
+
+    ``trace_factory`` is an internal seam for OpenTelemetry tracing; it is not
+    part of the public API. The request span wraps the whole loop (including
+    backoff sleeps) and each attempt span wraps the actual provider call, with
+    the backoff sleep outside the attempt span. Telemetry is defensively
+    isolated and never changes the retry decision or the visible result/error.
     """
     start = clock()
     retry_cost_so_far_usd: float | None = 0.0
     outcomes: list[AttemptOutcome] = []
 
-    for attempt_number in range(1, policy.max_attempts + 1):
-        attempt_start = clock()
-        try:
-            response = attempt()
-        except Exception as error:
-            attempt_latency_s = clock() - attempt_start
-            decision = _plan_after_failure(
-                error,
-                attempt_number=attempt_number,
-                attempt_latency_s=attempt_latency_s,
-                retry_cost_so_far_usd=retry_cost_so_far_usd,
-                outcomes=outcomes,
-                policy=policy,
-                budget=budget,
-                request=request,
-                rng=rng,
-                retry_after_extractor=retry_after_extractor,
-                stream_started_probe=stream_started_probe,
-            )
-            if decision.action is _Action.SURFACE:
-                raise  # bare: preserve the original provider traceback
-            retry_cost_so_far_usd = decision.retry_cost_so_far_usd
-            sleep(decision.sleep_s)
-            continue
-        else:
-            attempt_latency_s = clock() - attempt_start
-            return _success_result(
-                response,
-                attempt_number=attempt_number,
-                attempt_latency_s=attempt_latency_s,
-                total_latency_s=clock() - start,
-                retry_cost_so_far_usd=retry_cost_so_far_usd,
-                outcomes=outcomes,
-                budget=budget,
-            )
+    with trace_factory(
+        provider=provider, request=request, policy=policy, budget=budget
+    ) as recorder:
+        for attempt_number in range(1, policy.max_attempts + 1):
+            attempt_start = clock()
+            retry_sleep_s = 0.0
+            with recorder.attempt(attempt_number) as attempt_recorder:
+                try:
+                    response = attempt()
+                except Exception as error:
+                    attempt_latency_s = clock() - attempt_start
+                    try:
+                        decision = _plan_after_failure(
+                            error,
+                            attempt_number=attempt_number,
+                            attempt_latency_s=attempt_latency_s,
+                            retry_cost_so_far_usd=retry_cost_so_far_usd,
+                            outcomes=outcomes,
+                            policy=policy,
+                            budget=budget,
+                            request=request,
+                            rng=rng,
+                            retry_after_extractor=retry_after_extractor,
+                            stream_started_probe=stream_started_probe,
+                        )
+                    except (
+                        RetriesExhausted,
+                        RetryBudgetExhausted,
+                        RetryCostCeilingHit,
+                    ) as terminal:
+                        _record_failed_attempt(
+                            attempt_recorder, outcomes[-1], backoff_s=None
+                        )
+                        recorder.set_outcome(_OUTCOME_BY_EXCEPTION[type(terminal)])
+                        raise
+                    if decision.action is _Action.SURFACE:
+                        _record_failed_attempt(
+                            attempt_recorder, outcomes[-1], backoff_s=None
+                        )
+                        if decision.outcome is not None:
+                            recorder.set_outcome(decision.outcome)
+                        raise  # bare: preserve the original provider traceback
+                    _record_failed_attempt(
+                        attempt_recorder, outcomes[-1], backoff_s=decision.sleep_s
+                    )
+                    retry_cost_so_far_usd = decision.retry_cost_so_far_usd
+                    retry_sleep_s = decision.sleep_s
+                else:
+                    attempt_latency_s = clock() - attempt_start
+                    attempt_recorder.record_success(latency_s=attempt_latency_s)
+                    recorder.set_outcome(OUTCOME_OK)
+                    recorder.set_retry_cost(retry_cost_so_far_usd)
+                    return _success_result(
+                        response,
+                        attempt_number=attempt_number,
+                        attempt_latency_s=attempt_latency_s,
+                        total_latency_s=clock() - start,
+                        retry_cost_so_far_usd=retry_cost_so_far_usd,
+                        outcomes=outcomes,
+                        budget=budget,
+                    )
+            # RETRY only: the backoff sleep is inside the request span but
+            # outside the just-closed attempt span.
+            recorder.set_retry_cost(retry_cost_so_far_usd)
+            sleep(retry_sleep_s)
 
-    # Unreachable: the last iteration either returns on success or raises
-    # RetriesExhausted on a retryable failure (a RETRY decision can only occur
-    # when attempt_number < max_attempts).
-    raise AssertionError("executor loop terminated without a result")
+        # Unreachable: the last iteration either returns on success or raises
+        # RetriesExhausted on a retryable failure (a RETRY decision can only
+        # occur when attempt_number < max_attempts).
+        raise AssertionError("executor loop terminated without a result")
 
 
 async def execute_async(
@@ -420,6 +510,8 @@ async def execute_async(
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     clock: Callable[[], float] = time.monotonic,
     rng: Callable[[], float] = random.random,
+    provider: str | None = None,
+    trace_factory: TraceFactory = default_trace_factory,
 ) -> ExecutionResult:
     """Async counterpart of :func:`execute` sharing its decision logic.
 
@@ -428,48 +520,81 @@ async def execute_async(
     propagates immediately -- no further attempt, budget withdrawal, cost
     accounting, or sleep. An acquired budget token is deliberately not refunded
     on cancellation: it represents reserved, conservatively-shed retry capacity.
+
+    Telemetry mirrors :func:`execute`; the recorder performs no blocking I/O in
+    its enter/exit/attribute methods.
     """
     start = clock()
     retry_cost_so_far_usd: float | None = 0.0
     outcomes: list[AttemptOutcome] = []
 
-    for attempt_number in range(1, policy.max_attempts + 1):
-        attempt_start = clock()
-        try:
-            response = await attempt()
-        except Exception as error:
-            attempt_latency_s = clock() - attempt_start
-            decision = _plan_after_failure(
-                error,
-                attempt_number=attempt_number,
-                attempt_latency_s=attempt_latency_s,
-                retry_cost_so_far_usd=retry_cost_so_far_usd,
-                outcomes=outcomes,
-                policy=policy,
-                budget=budget,
-                request=request,
-                rng=rng,
-                retry_after_extractor=retry_after_extractor,
-                stream_started_probe=stream_started_probe,
-            )
-            if decision.action is _Action.SURFACE:
-                raise  # bare: preserve the original provider traceback
-            retry_cost_so_far_usd = decision.retry_cost_so_far_usd
-            await sleep(decision.sleep_s)
-            continue
-        else:
-            attempt_latency_s = clock() - attempt_start
-            return _success_result(
-                response,
-                attempt_number=attempt_number,
-                attempt_latency_s=attempt_latency_s,
-                total_latency_s=clock() - start,
-                retry_cost_so_far_usd=retry_cost_so_far_usd,
-                outcomes=outcomes,
-                budget=budget,
-            )
+    with trace_factory(
+        provider=provider, request=request, policy=policy, budget=budget
+    ) as recorder:
+        for attempt_number in range(1, policy.max_attempts + 1):
+            attempt_start = clock()
+            retry_sleep_s = 0.0
+            with recorder.attempt(attempt_number) as attempt_recorder:
+                try:
+                    response = await attempt()
+                except Exception as error:
+                    attempt_latency_s = clock() - attempt_start
+                    try:
+                        decision = _plan_after_failure(
+                            error,
+                            attempt_number=attempt_number,
+                            attempt_latency_s=attempt_latency_s,
+                            retry_cost_so_far_usd=retry_cost_so_far_usd,
+                            outcomes=outcomes,
+                            policy=policy,
+                            budget=budget,
+                            request=request,
+                            rng=rng,
+                            retry_after_extractor=retry_after_extractor,
+                            stream_started_probe=stream_started_probe,
+                        )
+                    except (
+                        RetriesExhausted,
+                        RetryBudgetExhausted,
+                        RetryCostCeilingHit,
+                    ) as terminal:
+                        _record_failed_attempt(
+                            attempt_recorder, outcomes[-1], backoff_s=None
+                        )
+                        recorder.set_outcome(_OUTCOME_BY_EXCEPTION[type(terminal)])
+                        raise
+                    if decision.action is _Action.SURFACE:
+                        _record_failed_attempt(
+                            attempt_recorder, outcomes[-1], backoff_s=None
+                        )
+                        if decision.outcome is not None:
+                            recorder.set_outcome(decision.outcome)
+                        raise  # bare: preserve the original provider traceback
+                    _record_failed_attempt(
+                        attempt_recorder, outcomes[-1], backoff_s=decision.sleep_s
+                    )
+                    retry_cost_so_far_usd = decision.retry_cost_so_far_usd
+                    retry_sleep_s = decision.sleep_s
+                else:
+                    attempt_latency_s = clock() - attempt_start
+                    attempt_recorder.record_success(latency_s=attempt_latency_s)
+                    recorder.set_outcome(OUTCOME_OK)
+                    recorder.set_retry_cost(retry_cost_so_far_usd)
+                    return _success_result(
+                        response,
+                        attempt_number=attempt_number,
+                        attempt_latency_s=attempt_latency_s,
+                        total_latency_s=clock() - start,
+                        retry_cost_so_far_usd=retry_cost_so_far_usd,
+                        outcomes=outcomes,
+                        budget=budget,
+                    )
+            # RETRY only: backoff sleep is inside the request span but outside
+            # the just-closed attempt span.
+            recorder.set_retry_cost(retry_cost_so_far_usd)
+            await sleep(retry_sleep_s)
 
-    raise AssertionError("executor loop terminated without a result")
+        raise AssertionError("executor loop terminated without a result")
 
 
 __all__: Sequence[str] = (

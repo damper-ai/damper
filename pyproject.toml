@@ -45,6 +45,10 @@ dev = [
     "mypy>=1.10",
     "build>=1.2",
     "twine>=5",
+    # SDK is dev-only: needed to assert emitted spans/attributes in tests and for
+    # the telemetry example. The runtime dependency is opentelemetry-api only.
+    # Same >=1.20 lower bound as the API so the resolver picks matching packages.
+    "opentelemetry-sdk>=1.20",
 ]
 
 [tool.hatch.build.targets.wheel]
