@@ -38,3 +38,6 @@ jobs:
 
       - name: Pytest
         run: pytest
+
+      - name: Fake outage demo
+        run: python examples/02_outage_demo.py --fake

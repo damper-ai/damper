@@ -227,29 +227,35 @@ pip install -e ".[dev]"
 
 ## Examples
 
-Planned examples for v0.1:
-
 ```text
-examples/01_basic.py
-examples/02_outage_demo.py
-examples/03_telemetry.py
+examples/01_basic.py        # wrap a client, read resp.damper metadata (needs a key)
+examples/02_outage_demo.py  # deterministic brownout: naive per-request retries vs Damper
+examples/03_telemetry.py    # view damper.request / damper.attempt spans via a console exporter
 ```
 
-`examples/02_outage_demo.py --fake` will run in CI and demonstrate retry amplification control.
+`examples/02_outage_demo.py --fake` runs in CI and exits non-zero if Damper fails
+to bound retry amplification. It is deterministic and network-free.
 
-Expected shape:
+In that fake brownout every request is failed twice and then succeeds, so a
+naive per-request retry loop makes three attempts per request while Damper's
+retry budget drains and sheds the rest:
 
 ```text
-Naive client:
-logical requests: 1000
-provider attempts: ~3000
-amplification: ~3.0x
+Naive per-request retries:
+  logical requests:        1000
+  provider attempts:       3000
+  amplification:           3.00x
 
 Damper:
-logical requests: 1000
-provider attempts: <= 1100
-amplification: <= 1.1x
+  logical requests:        1000
+  provider attempts:       1010
+  amplification:           1.01x
+  budget exhausted events: 995
 ```
+
+The exact numbers are properties of this deterministic fake, not a claim about
+any specific Anthropic SDK version or real outage. The baseline is a plain
+per-request retry loop, not a reproduction of the SDK's retry behavior.
 
 ---
 
