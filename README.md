@@ -132,14 +132,14 @@ The retry cost is an estimate used for safety. It is not billing truth.
 
 Damper emits OpenTelemetry spans for logical requests and provider attempts.
 
-Planned v0.1 spans:
+Spans:
 
 ```text
 damper.request
 damper.attempt
 ```
 
-Planned stable attributes include:
+Stable attributes include:
 
 ```text
 damper.attempts
