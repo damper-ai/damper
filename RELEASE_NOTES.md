@@ -2,6 +2,9 @@
 
 Damper v0.1.0 is the first public release.
 
+Damper is an LLM reliability library. v0.1.0 starts with retry discipline for
+the Anthropic Python SDK.
+
 Damper owns the retry loop for wrapped Anthropic `messages.create` and
 `messages.stream` calls, for both sync and async clients.
 
@@ -14,10 +17,10 @@ budget.
 
 - **Client-local retry budget**
 
-  Fixed-window accounting limits retries to a configurable fraction of
-  successful first attempts. During a provider outage, first-attempt successes
-  stop replenishing the budget, available retry capacity drains, and additional
-  retry load is shed.
+  Within each fixed window, retries are bounded by the configured initial
+  capacity plus a configurable fraction of successful first attempts. During a
+  provider outage, first-attempt successes stop replenishing the budget,
+  available retry capacity drains, and additional retry load is shed.
 
 - **Cost-aware retry ceiling**
 
@@ -26,14 +29,14 @@ budget.
 
 - **Streaming-safe retry boundary**
 
-  Streaming calls are retried only before the first content event. Once content
-  has been exposed to the caller, later failures are surfaced and the request is
-  not replayed.
+  Streaming calls are retried only while no output content delta has been
+  received. Once the first output content delta arrives, later failures are
+  surfaced and the stream is not replayed.
 
 - **Anthropic-specific error classification**
 
   Retryable, non-retryable, and ambiguous failures are classified using
-  provider-aware rules. Applications can supply their own classifier.
+  Anthropic-specific rules. Applications can supply their own classifier.
 
 - **Full-jitter exponential backoff**
 
@@ -62,10 +65,8 @@ budget.
   3,000 provider attempts with a naive three-attempt retry loop and 1,010
   attempts (about 1.01x) with the demo's configured Damper policy.
 
-  These numbers belong to the deterministic simulation. The demo asserts the
-  broader configured bound of at most 1.1 provider attempts per logical request,
-  so the exact 1.01x figure is the observed result and 1.1x is the enforced
-  ceiling.
+  These numbers belong to the deterministic simulation. The exact 1.01x figure
+  is the observed result. The 1.1x value is the demo's pass/fail threshold.
 
 ## Install
 

@@ -37,10 +37,10 @@ pytest
 python examples/02_outage_demo.py --fake
 ```
 
-- `ruff check .` — linting and import ordering
-- `mypy .` — static type checking
-- `pytest` — the full test suite
-- `python examples/02_outage_demo.py --fake` — the deterministic outage demo,
+- `ruff check .`: linting and import ordering
+- `mypy .`: static type checking
+- `pytest`: the full test suite
+- `python examples/02_outage_demo.py --fake`: the deterministic outage demo,
   which exits non-zero if Damper fails to bound retry amplification
 
 ## Testing rules
@@ -54,9 +54,10 @@ and self-contained:
 - Use the scripted fakes and injected clocks/sleeps rather than live calls or
   wall-clock delays.
 
-Any change to retry decisions — budget accounting, cost ceilings, error
-classification, backoff, streaming boundary, or retry ownership — must come with
-focused tests that cover the relevant invariant or failure mode.
+Any change to retry decisions must come with focused tests that cover the
+relevant invariant or failure mode. This applies to budget accounting, cost
+ceilings, error classification, backoff, the streaming boundary, and retry
+ownership.
 
 ## Scope (v0.1)
 

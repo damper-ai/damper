@@ -1,4 +1,4 @@
-"""Client-local retry budget (fixed-window token bucket).
+"""Client-local fixed-window retry budget.
 
 Reliability-critical. Implements the accounting model in ``SPEC.md`` section
 12 with fixed-window rollover: each window is

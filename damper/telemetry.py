@@ -49,12 +49,8 @@ That boundary has consequences worth stating exactly:
 Attribute names
 ---------------
 
-``damper.*`` attributes are the stable project contract. ``gen_ai.*`` attributes
-are best-effort compatibility mappings, not the stable API.
-
-TODO(amit): verify ``gen_ai.*`` names against the current OpenTelemetry GenAI
-semantic-convention release before tagging v0.1; only a small stable subset is
-emitted here.
+Damper treats ``damper.*`` attributes as its stable telemetry contract.
+``gen_ai.*`` attributes are compatibility mappings only and may evolve independently..
 """
 
 from __future__ import annotations

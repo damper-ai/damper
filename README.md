@@ -1,10 +1,12 @@
 # Damper
 
-**Reliability control for LLM clients.**
+**Reliability control for Anthropic LLM clients.**
 
-Damper adds budgeted, cost-aware, streaming-safe retry behavior around LLM provider SDKs.
+Damper is a reliability library for LLM applications. v0.1 focuses on budgeted,
+cost-aware, streaming-safe retries for the Anthropic Python SDK.
 
-v0.1 starts with Anthropic.
+v0.1 supports `Anthropic` and `AsyncAnthropic`. It intercepts `messages.create()` and
+`messages.stream()`. Other client methods pass through unchanged.
 
 ```python
 from anthropic import Anthropic
@@ -51,7 +53,8 @@ x 3 attempts each
 = 30,000 provider attempts during the brownout
 ```
 
-Damper exists to make LLM clients fail with control.
+Damper gives applications using Anthropic explicit control over retry admission, retry
+cost, streaming failures, and retry telemetry.
 
 ---
 
@@ -65,9 +68,9 @@ Damper v0.1 provides:
 
 - client-local retry budgets
 - cost-aware retry ceilings
-- LLM-specific error classification
+- Anthropic-specific error classification
 - exponential backoff with full jitter
-- provider retry-after handling
+- Anthropic `Retry-After` handling
 - streaming-safe retry semantics
 - OpenTelemetry traces
 - response metadata
@@ -77,21 +80,24 @@ Damper v0.1 provides:
 
 ## Retry budget
 
-Damper uses a client-local retry budget.
+Damper uses a client-local, fixed-window retry budget. One budget belongs to one wrapped
+client instance.
 
-Successful first attempts add retry budget. Retries consume it.
+Each window starts with the configured initial capacity. Successful first attempts add
+capacity. Retries consume it. Nothing carries across a window boundary.
 
-Example:
+Within a window, retries are bounded by:
 
 ```text
-retry_budget_ratio = 0.1
-
-100 successful first attempts
-=> 10 retry tokens
-=> retries stay bounded to roughly 10% of recent successful traffic
+retry_budget_min_tokens
++ retry_budget_ratio * successful first-attempt successes
 ```
 
-During a provider brownout, first attempts stop succeeding, the retry budget drains, and Damper stops retrying.
+With the default policy, each fixed window starts with 10 units of retry capacity. One
+hundred successful first attempts in that window add 10 more units.
+
+During a provider brownout, first attempts stop succeeding, so the budget stops being
+replenished, drains, and Damper stops retrying.
 
 That is the core behavior:
 
@@ -103,9 +109,9 @@ shed retry load instead of amplifying the outage
 
 ## Streaming rule
 
-Damper retries streaming calls only before the first token arrives.
-
-Once content has streamed to the caller, failures are surfaced instead of replayed.
+Damper retries a streaming call only while no output content delta has been received.
+Once the first output content delta arrives, later failures are surfaced and the stream is
+not replayed.
 
 This is intentional.
 
@@ -126,6 +132,65 @@ policy = Policy(max_retry_cost_usd=0.05)
 ```
 
 The retry cost is an estimate used for safety. It is not billing truth.
+
+---
+
+## Configuration
+
+`Policy` holds every knob. These are the complete defaults:
+
+```python
+from damper import Policy
+
+Policy(
+    max_attempts=3,
+    per_attempt_timeout=60.0,
+    max_retry_cost_usd=None,
+    retry_budget_ratio=0.1,
+    retry_budget_window=60.0,
+    retry_budget_min_tokens=10,
+    backoff_base=1.0,
+    backoff_max=30.0,
+    respect_retry_after=True,
+    on_budget_exhausted="raise",
+    price_table=None,
+    classifier=None,
+)
+```
+
+When the retry budget is exhausted, `on_budget_exhausted="raise"` raises
+`RetryBudgetExhausted`. `on_budget_exhausted="passthrough"` surfaces the last provider
+error directly.
+
+`Policy` is frozen. Build a new one to change behavior.
+
+---
+
+## Async clients
+
+`resilient()` accepts `AsyncAnthropic` and returns an async proxy:
+
+```python
+import asyncio
+
+from anthropic import AsyncAnthropic
+from damper import resilient, Policy
+
+
+async def main() -> None:
+    client = resilient(AsyncAnthropic(), policy=Policy())
+
+    resp = await client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=512,
+        messages=[{"role": "user", "content": "Explain retry storms"}],
+    )
+
+    print(resp.damper.attempts)
+
+
+asyncio.run(main())
+```
 
 ---
 
@@ -155,6 +220,10 @@ damper.provider
 damper.model
 ```
 
+Attributes are emitted where their value is known. `damper.provider` and `damper.model`
+require the request to carry them, `damper.cost.estimate_usd` requires a priced model, and
+`damper.attempt.backoff_s` is set on an attempt only when a retry follows it.
+
 If no OpenTelemetry SDK/exporter is configured, telemetry is a no-op.
 
 ---
@@ -170,27 +239,28 @@ Damper understands:
 - token cost
 - retry budgets
 - streaming retry boundaries
-- LLM-provider error classes
-- provider retry-after
-- LLM-specific telemetry
+- Anthropic-specific error classification
+- Anthropic `Retry-After` handling
+- retry-decision telemetry
 
 ---
 
 ## Why not the SDK's built-in retries?
 
-Provider SDK retries are per-request retry hygiene.
+The Anthropic SDK provides per-request retries.
 
-Damper controls retry behavior at the application/client level.
+Damper controls retry admission across calls made through the same wrapped client
+instance.
 
-The difference:
+On top of the SDK's per-request behavior, Damper adds:
 
-- SDK retries are per-request only.
-- Per-request retries can amplify provider brownouts.
-- SDK retries are cost-blind.
-- SDK retries are mostly invisible during incidents.
-- Damper disables SDK retries for wrapped calls and replaces them with one owned retry loop.
+- client-local retry budgeting
+- retry-cost estimation
+- response metadata
+- `damper.request` and `damper.attempt` spans
 
-Damper does not stack on top of SDK retries.
+For intercepted calls, Damper disables the SDK's retries and replaces them with one owned
+retry loop, so the two do not stack.
 
 ---
 
@@ -334,7 +404,8 @@ tests/
 examples/
 ```
 
-See `CLAUDE.md` for coding-agent and contributor guidance.
+See `CONTRIBUTING.md` for development setup and contribution guidelines.
+`CLAUDE.md` contains additional guidance for coding agents.
 
 ---
 

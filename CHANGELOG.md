@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-07-18
+## [0.1.0] - 2026-07-19
 
 ### Added
 
@@ -13,7 +13,7 @@ All notable changes to this project will be documented in this file.
 - Anthropic-specific error classification
 - Full-jitter exponential backoff with Retry-After support
 - Exclusive retry ownership for wrapped Anthropic calls
-- Streaming retries only before the first content event
+- Streaming retries only before the first output content delta
 - Sync and async Anthropic wrappers
 - Response-level Damper metadata
 - OpenTelemetry request and attempt spans

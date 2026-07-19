@@ -208,9 +208,9 @@ Do not implement external coordination, Redis, database storage, shared process 
 
 ## Streaming rule
 
-Damper retries streaming calls only before the first token arrives.
+Damper retries a streaming call only while no output content delta has been received.
 
-Once any content has streamed to the caller, Damper must surface the failure and not retry.
+Once the first output content delta arrives, Damper must surface the failure and not replay the stream.
 
 This is a correctness rule, not a missing feature.
 

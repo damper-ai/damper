@@ -23,8 +23,9 @@ it -- ``max_attempts``, the retry budget, the cost ceiling, and the per-attempt
 timeout -- and ``backoff_max`` is intentionally not among them). An invalid
 ``retry_after`` (non-finite or negative) falls back to computed full jitter.
 
-TODO(amit): v0.1 only reads a numeric ``retry_after``; parsing an HTTP-date
-``Retry-After`` header is deferred.
+``Retry-After`` header parsing and normalization are handled by the provider
+integration before this function is called. :func:`compute_backoff` accepts only
+a normalized duration in seconds as ``float | None``.
 """
 
 from __future__ import annotations
