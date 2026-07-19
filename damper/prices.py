@@ -80,7 +80,7 @@ class ModelPrice:
 # ID is never presented as if it were current. Anthropic maintains a separate
 # model-deprecation schedule; maintainers should re-verify prices and prune
 # newly-retired entries before each release.
-_LAST_VERIFIED = "2026-07-12"
+_LAST_VERIFIED = "2026-07-18"
 
 _PRICES: dict[str, ModelPrice] = {
     # --- Current models ---

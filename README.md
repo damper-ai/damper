@@ -22,7 +22,8 @@ print(resp.damper.attempts)
 print(resp.damper.retry_cost_usd)
 ```
 
-> Status: pre-v0.1 implementation. The public API may change until `v0.1.0` is tagged.
+> Damper v0.1.0 supports wrapped Anthropic clients only. As a pre-1.0 library,
+> the API may continue to evolve in future minor releases.
 
 ---
 
@@ -194,10 +195,6 @@ Damper does not stack on top of SDK retries.
 ---
 
 ## Install
-
-Damper is not published yet.
-
-After `v0.1.0` is released:
 
 ```bash
 pip install damper
