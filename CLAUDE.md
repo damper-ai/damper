@@ -1,12 +1,12 @@
-# CLAUDE.md - Damper Development Guidelines
+# CLAUDE.md
 
-You are helping implement Damper, a Python reliability library for LLM clients.
+This file contains development rules for Damper.
 
-Damper v0.1 focuses on budgeted, cost-aware, streaming-safe retries for Anthropic LLM calls.
+Damper is a Python reliability library for LLM clients. v0.1 focuses on retry
+discipline for the Anthropic Python SDK.
 
-This file is public project guidance for Claude Code and other coding agents. It must stay useful for contributors who fork the repository. Do not reference private local files in this document.
-
----
+This file is public. Keep it useful for contributors and forks. Do not refer to
+private local files, personal directories, or machine specific setup.
 
 ## Project identity
 
@@ -16,293 +16,39 @@ Package name:
 damper
 ```
 
-Import path:
+Public import:
 
 ```python
-from damper import resilient, Policy
+from damper import Policy, resilient
 ```
 
-Do not use old names such as:
+## Before changing code
 
-```text
-steadfast
-llm-resilience
-bulwark-llm
-```
-
-If old names appear in generated code, docs, comments, tests, CI, or examples, stop and ask before changing broadly.
-
----
-
-## First response rule
-
-Before editing files:
+For changes that affect behavior, public API, retry decisions, telemetry,
+exceptions, packaging, or more than one file:
 
 1. summarize the task
-2. summarize the relevant v0.1 scope
-3. identify reliability-critical files touched by the task
+2. identify the files involved
+3. explain any effect on v0.1 behavior
 4. propose a small plan
 5. wait for approval
 
-Do not write code until Amit approves the plan.
-
----
+For an exact and limited documentation or test edit, make the requested change
+and show the diff unless the user asks for a plan first.
 
 ## Hard rules
 
-- Do not build features outside v0.1 scope.
-- Do not implement hedging, adaptive timeouts, circuit breakers, bulkheads, fallbacks, multi-provider support, proxy mode, caching, guardrails, or evals.
-- Do not use network access in tests.
-- Do not make live provider API calls in tests.
-- Do not require real API keys for CI.
-- Do not silently change public API.
-- Do not add new runtime dependencies without approval.
-- Do not tag releases.
-- Do not publish to PyPI.
-- Do not push to remote unless Amit explicitly asks.
-- If implementation requires changing public API, exception behavior, telemetry names, or retry semantics, stop and explain the tradeoff first.
+Do not add work outside the current release scope.
 
----
+Do not add a runtime dependency without approval.
 
-## v0.1 scope
+Do not use the network, live provider calls, real API keys, or external
+services in tests.
 
-Allowed in v0.1:
+Do not silently change public API, exception behavior, telemetry names, retry
+semantics, or model pricing behavior.
 
-```text
-Anthropic sync wrapper
-Anthropic async wrapper
-SDK retry ownership
-client-local retry budget
-cost ceiling
-error classification
-backoff with full jitter
-retry-after handling
-streaming retry boundary
-OpenTelemetry traces
-response metadata
-fake Anthropic client
-outage demo
-README
-CI
-packaging
-```
-
-Not allowed in v0.1:
-
-```text
-hedging
-adaptive timeouts
-circuit breakers
-bulkheads
-adaptive concurrency
-priority shedding
-fallback chains
-multi-provider adapters
-proxy mode
-Grafana dashboard
-distributed retry budget
-prompt management
-caching
-guardrails
-evals
-```
-
----
-
-## Core implementation rule
-
-The agent may generate an initial implementation for all modules.
-
-Amit will manually review, rewrite, or directly control reliability-critical parts before release.
-
-Reliability-critical files:
-
-```text
-damper/budget.py
-damper/cost.py
-damper/_executor.py
-damper/_wrapper.py
-tests/test_budget.py
-tests/test_retry_ownership.py
-tests/test_concurrency.py
-```
-
-Extra care is required for:
-
-```text
-client-local retry budget accounting
-cost estimation and retry cost ceiling
-core retry-decision logic
-SDK retry ownership
-streaming retry boundary
-concurrency safety
-budget invariant tests
-```
-
-Generated code in these areas is not final until Amit approves the diff.
-
-When working on reliability-critical files:
-
-- keep the code small and explicit
-- add tests for the relevant invariant or failure mode
-- avoid clever abstractions
-- avoid hidden background behavior
-- avoid network calls in the decision path
-- avoid SDK retry stacking
-- preserve original provider exceptions as causes
-
----
-
-## Retry ownership rule
-
-Damper owns retries for wrapped calls.
-
-Do not allow SDK retries and Damper retries to stack.
-
-For intercepted Anthropic calls:
-
-```text
-client.messages.create(...)
-client.messages.stream(...)
-async_client.messages.create(...)
-async_client.messages.stream(...)
-```
-
-the implementation must disable Anthropic SDK retries using the supported SDK mechanism.
-
-Required behavior:
-
-```text
-[529, ok] -> exactly 2 provider attempts total
-```
-
-Forbidden behavior:
-
-```text
-SDK retries x Damper retries
-```
-
-If SDK retries cannot be disabled safely, raise `RetryOwnershipError`.
-
----
-
-## Retry budget rule
-
-The v0.1 retry budget is client-local.
-
-Do not describe it as a distributed fleet-wide budget.
-
-The implementation must use one budget per wrapped client instance.
-
-Required invariant:
-
-```text
-retries <= retry_budget_ratio * successful_first_attempts + initial_capacity
-```
-
-Initial capacity comes from `retry_budget_min_tokens`.
-
-Do not implement external coordination, Redis, database storage, shared process state, or distributed budget accounting in v0.1.
-
----
-
-## Streaming rule
-
-Damper retries a streaming call only while no output content delta has been received.
-
-Once the first output content delta arrives, Damper must surface the failure and not replay the stream.
-
-This is a correctness rule, not a missing feature.
-
----
-
-## Error handling rule
-
-Damper must not swallow provider errors.
-
-When Damper raises its own exception, preserve the original provider exception as `__cause__` when one exists.
-
-Required exception types:
-
-```text
-DamperError
-RetryBudgetExhausted
-RetriesExhausted
-RetryCostCeilingHit
-RetryOwnershipError
-```
-
----
-
-## Telemetry rule
-
-Damper emits OpenTelemetry spans, but must work when no OTel SDK or exporter is configured.
-
-Expected span names:
-
-```text
-damper.request
-damper.attempt
-```
-
-Telemetry must not add network calls, blocking exporters, or hidden work to the hot path.
-
-Do not change telemetry attribute names without approval.
-
----
-
-## Testing rules
-
-No test may require:
-
-```text
-network access
-real Anthropic API key
-real OpenAI API key
-real Gemini API key
-external services
-wall-clock sleeps longer than necessary
-```
-
-Use fakes, deterministic clocks, and scripted failure sequences.
-
-Every implementation change should include or update tests.
-
-Required quality gates:
-
-```text
-ruff check .
-mypy .
-pytest
-python examples/02_outage_demo.py --fake
-```
-
-If a command cannot run in the current environment, say so explicitly and explain what should be run locally.
-
----
-
-## Quality bar
-
-- ruff green
-- mypy green
-- pytest green
-- no network access in tests
-- no hidden retries under wrapped Anthropic calls
-- no SDK x Damper retry multiplication
-- fake outage demo proves retry amplification is bounded
-- README claims match executable examples
-- public API is stable and documented
-- package name is `damper` everywhere
-- original provider exceptions are preserved
-- no future-scope features are implemented in v0.1
-
----
-
-## Git and release rules
-
-You may suggest commit messages.
-
-Do not run:
+Do not run any of these commands:
 
 ```text
 git add
@@ -312,71 +58,273 @@ git tag
 twine upload
 ```
 
-unless Amit explicitly asks.
+Do not create a GitHub release or publish a package. The maintainer performs all
+source control and release actions manually.
 
-Never publish to PyPI.
+When a requested change would break one of these rules, stop and explain why.
 
-Release prep may generate:
+## v0.1 scope
+
+Damper v0.1 supports:
 
 ```text
-CHANGELOG.md
-dist build instructions
-twine check instructions
-manual publish commands
+Anthropic sync clients
+Anthropic async clients
+messages.create()
+messages.stream()
+one Damper owned retry loop for intercepted calls
+client local fixed window retry budgets
+cumulative retry cost ceilings
+Anthropic specific error classification
+exponential backoff with full jitter
+Anthropic Retry-After handling
+streaming retry boundaries
+OpenTelemetry spans
+response metadata
+deterministic fake provider tests
+the outage demo
+documentation
+CI
+packaging
 ```
 
-Amit performs commits, pushes, tags, and uploads manually.
+The following work is outside the scope of v0.1:
 
----
+```text
+request hedging
+adaptive timeouts
+circuit breakers
+bulkheads
+adaptive concurrency
+priority shedding
+fallback chains
+support for multiple providers
+proxy mode
+Grafana dashboards
+distributed retry budgets
+prompt management
+caching
+routing
+guardrails
+evals
+```
 
-## Stop conditions
+Open an issue or ask the maintainer before starting work near these boundaries.
 
-Stop and ask Amit when:
+## Files that need extra review
 
-- Anthropic SDK retry disabling is unclear or unsupported
-- public API needs to change
-- reliability-critical interfaces are insufficient
-- tests require network access
-- implementation requires a new runtime dependency
-- v0.1 scope starts drifting into later milestones
-- current repo state is unclear
-- old names like `steadfast` are mixed with `damper`
-- a design choice affects public API, telemetry attribute names, or exception behavior
+Changes to these files can alter retry safety or public behavior:
 
----
+```text
+damper/budget.py
+damper/cost.py
+damper/prices.py
+damper/classify.py
+damper/backoff.py
+damper/_executor.py
+damper/_wrapper.py
+damper/telemetry.py
+```
+
+Relevant tests include:
+
+```text
+tests/test_budget.py
+tests/test_cost.py
+tests/test_executor.py
+tests/test_retry_ownership.py
+tests/test_streaming.py
+tests/test_concurrency.py
+tests/test_telemetry.py
+```
+
+When working in these areas:
+
+```text
+keep the code small and explicit
+test the relevant invariant or failure mode
+avoid hidden background behavior
+avoid network calls in the decision path
+avoid stacked retry loops
+preserve provider exceptions as causes
+cover synchronous and asynchronous paths where both exist
+```
+
+## Retry ownership
+
+Damper owns retries for intercepted calls:
+
+```text
+client.messages.create(...)
+client.messages.stream(...)
+async_client.messages.create(...)
+async_client.messages.stream(...)
+```
+
+The Anthropic SDK retry loop must be disabled through a supported SDK mechanism
+before Damper runs its own loop.
+
+This sequence:
+
+```text
+529, success
+```
+
+must result in exactly two provider attempts.
+
+SDK retries and Damper retries must never stack. When Damper cannot safely take
+ownership of retries, raise `RetryOwnershipError`.
+
+## Retry budget
+
+Each wrapped client has one local fixed window retry budget.
+
+Within one window:
+
+```text
+authorized retries
+<= retry_budget_min_tokens
+   + retry_budget_ratio * successful first attempts
+```
+
+A new window starts with `retry_budget_min_tokens` units. Successful first
+attempts add capacity. Each authorized retry consumes one unit. Unused capacity
+does not carry into the next window.
+
+Do not add Redis, database storage, process wide shared state, or any other
+distributed coordination in v0.1.
+
+## Retry cost ceiling
+
+The retry cost ceiling applies to the cumulative estimated cost of retries for
+one logical request.
+
+When `max_retry_cost_usd` is configured and the model price cannot be
+determined, Damper must fail closed:
+
+```text
+unknown retry cost
+=> no retry
+=> RetryCostCeilingHit
+```
+
+An unknown model must not be treated as free.
+
+A custom `Policy.price_table` replaces the built in table. It does not merge
+with the default table. Preserve this behavior unless a public API change is
+reviewed and approved.
+
+The built in price table is a versioned snapshot. Do not describe it as live
+pricing or billing data.
+
+## Streaming behavior
+
+A streaming call may be retried only while no output content delta has been
+received.
+
+After the first output content delta, a later failure must be surfaced to the
+caller. Damper must not replay the stream.
+
+Prelude events such as stream or message start events do not close the retry
+boundary unless they contain output content.
+
+## Error handling
+
+Damper must not swallow provider errors.
+
+When Damper raises one of its own exceptions, preserve the provider exception
+as `__cause__` when one exists.
+
+Public exception types include:
+
+```text
+DamperError
+RetryBudgetExhausted
+RetriesExhausted
+RetryCostCeilingHit
+RetryOwnershipError
+```
+
+Do not add or rename public exceptions without approval.
+
+## Telemetry
+
+Damper emits these spans:
+
+```text
+damper.request
+damper.attempt
+```
+
+Damper must continue to work when no OpenTelemetry SDK or exporter is
+configured.
+
+The `damper.*` attributes are the stable Damper telemetry contract.
+Compatibility attributes outside that namespace may evolve independently.
+
+Telemetry must not add network calls, blocking exporters, or hidden work to the
+retry decision path.
+
+Do not rename telemetry attributes without approval.
+
+## Tests
+
+Tests must not require:
+
+```text
+network access
+provider API keys
+external services
+real delays
+```
+
+Use fake providers, deterministic clocks, injected sleep functions, fixed
+random number generators, and scripted failures.
+
+A behavior change must include focused tests for the affected path. Cover both
+synchronous and asynchronous clients where both use the changed behavior.
+
+Run:
+
+```bash
+ruff check .
+mypy .
+pytest
+python examples/02_outage_demo.py --fake
+```
+
+When a command cannot run in the current environment, say so and list the
+command that still needs to run locally.
+
+## Quality bar
+
+Before a change is ready for maintainer review:
+
+```text
+Ruff passes
+mypy passes
+pytest passes
+tests use no network or real provider keys
+intercepted Anthropic calls have one retry loop
+provider exceptions remain available as causes
+README claims match executable behavior
+public API changes are deliberate, tested, and documented
+the package name is damper everywhere
+no later milestone feature has entered v0.1
+```
 
 ## Working style
 
-Prefer small, reviewable changes.
+Prefer small changes that are easy to review.
 
-For sessions touching more than one file:
+After editing, report:
 
-1. read the relevant README sections and existing tests
-2. propose a plan
-3. wait for approval
-4. edit
-5. summarize changed files
-6. list commands run
-7. list remaining risks
+1. files changed
+2. behavior changed
+3. tests added or updated
+4. commands run
+5. command results
+6. remaining risks or questions
+7. whether production code changed
 
-Do not hide uncertainty. If something is unknown, say it.
-
----
-
-## Suggested first session
-
-Use this for the first agent session:
-
-```text
-Read README.md and CLAUDE.md.
-
-Summarize the v0.1 scope in two sentences.
-List the reliability-critical files that need extra maintainer review.
-Then propose a plan for scaffolding only.
-
-Do not implement retry budget, cost estimation, executor behavior, wrapper behavior, telemetry, or provider logic yet.
-
-Create only the package skeleton, pyproject.toml, test skeleton, fake client skeleton, CI, and placeholder modules.
-
-Stop after presenting the plan for approval.
-```
+Do not hide uncertainty. When something is not known, say so.
