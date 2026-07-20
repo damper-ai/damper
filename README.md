@@ -1,6 +1,14 @@
 # Damper
 
-**Reliability control for Anthropic LLM clients.**
+[![PyPI version](https://img.shields.io/pypi/v/damper.svg)](https://pypi.org/project/damper/)
+[![Python versions](https://img.shields.io/pypi/pyversions/damper.svg)](https://pypi.org/project/damper/)
+[![CI](https://github.com/damper-ai/damper/actions/workflows/ci.yml/badge.svg)](https://github.com/damper-ai/damper/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/damper-ai/damper/blob/main/LICENSE)
+
+**Reliability control for the Anthropic Python SDK.**
+
+> This README documents the current main branch. The latest released version is
+> v0.1.0.
 
 Damper is an LLM reliability library. v0.1 starts with retry control for the
 Anthropic Python SDK.
@@ -8,6 +16,9 @@ Anthropic Python SDK.
 It supports `Anthropic` and `AsyncAnthropic`. It intercepts
 `messages.create()` and `messages.stream()`. Other client methods pass through
 unchanged.
+
+Damper is an independent open source project. It is not affiliated with,
+sponsored by, or endorsed by Anthropic.
 
 ```python
 from anthropic import Anthropic
@@ -95,6 +106,28 @@ When the provider degrades, first attempts stop succeeding. The budget then
 stops growing, existing capacity drains, and further retries are denied. This
 limits retry amplification without requiring a separate gateway or service.
 
+Budgets are not coordinated across client instances or processes. Each wrapped
+client has its own retry budget, so if an application creates multiple wrapped
+clients or runs multiple replicas, each one starts with its own configured
+retry capacity.
+
+---
+
+## Error classification
+
+Damper classifies each provider failure before deciding whether to retry. The
+classification is Anthropic-specific. It uses the error's HTTP status code, or
+the transport failure type when there is no status code.
+
+| Class | What Damper puts here | Damper action |
+| --- | --- | --- |
+| Retryable | HTTP 429 and any 5xx, including 500, 502, 503, 504, and Anthropic's 529 overloaded. Also connection resets and timeouts that occur before any content has streamed. | Retried, subject to the retry budget, cost ceiling, and `max_attempts`. |
+| Not retryable | HTTP 400, 401, 402, 403, 404, 409, and 413, every other 4xx, and any failure that is neither a retryable status code nor an Anthropic transport error. | Surfaced to the caller. Not retried. |
+| Ambiguous | A connection reset or timeout that occurs after content has started streaming. | Surfaced to the caller. Not retried, because part of the output may already have reached the caller. |
+
+A custom classifier supplied through `Policy.classifier` can override these
+decisions.
+
 ---
 
 ## Streaming behavior
@@ -114,8 +147,8 @@ results.
 A retry repeats part or all of the request cost. This matters for large prompts
 and long output reservations.
 
-Damper can block another retry when the cumulative estimated retry cost would
-cross a configured limit:
+Damper can block another retry when the cumulative estimated retry cost for one
+logical request would cross a configured limit:
 
 ```python
 from damper import Policy
@@ -273,6 +306,14 @@ Damper-owned loop. The two retry layers do not stack.
 ```bash
 pip install damper
 ```
+
+Requirements:
+
+- Python 3.10 or newer
+- `anthropic` 0.30 or newer
+- `opentelemetry-api` 1.20 or newer
+
+The OpenTelemetry SDK and exporter are optional.
 
 For local development:
 

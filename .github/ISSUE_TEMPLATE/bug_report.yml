@@ -1,0 +1,119 @@
+name: Bug report
+description: Report a problem with Damper
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please fill in the
+        fields below so the problem can be reproduced. Do not paste API keys,
+        tokens, or other secrets anywhere in this issue.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Short description
+      description: A short summary of the problem.
+      placeholder: Damper retried a request it should have surfaced.
+    validations:
+      required: true
+
+  - type: input
+    id: damper-version
+    attributes:
+      label: Damper version
+      description: Output of `pip show damper` or the version you installed.
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: anthropic-version
+    attributes:
+      label: Anthropic SDK version
+      description: Output of `pip show anthropic`.
+      placeholder: 0.30.0
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      description: Output of `python --version`.
+      placeholder: 3.12.4
+    validations:
+      required: true
+
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system
+      description: The OS and version where you saw the problem.
+      placeholder: Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: dropdown
+    id: sync-or-async
+    attributes:
+      label: Sync or async usage
+      description: Which wrapped client were you using?
+      options:
+        - Sync (Anthropic)
+        - Async (AsyncAnthropic)
+        - Both
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: >
+        The smallest self-contained code that reproduces the problem. Prefer
+        the fake or offline path where possible. Do not include API keys or
+        secrets.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected Damper to do.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What Damper actually did.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Traceback or logs
+      description: >
+        The full traceback or relevant log output. Remove any API keys,
+        tokens, or other secrets before pasting.
+      render: text
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: This issue does not contain any API keys or secrets.
+          required: true
+        - label: >
+            I reproduced this with the latest released version of Damper, where
+            practical.
+          required: false
