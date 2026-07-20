@@ -43,6 +43,7 @@ from damper._executor import (
 from damper.budget import RetryBudget
 from damper.classify import ErrorClass
 from damper.cost import estimate_retry_cost_usd
+from damper.prices import ModelPrice
 from tests.fakes import Err, FakeProviderError, Ok, ScriptedFake
 
 MODES = ["sync", "async"]
@@ -53,6 +54,14 @@ DEFAULT_REQUEST: dict[str, Any] = {
     "messages": [{"role": "user", "content": "hi"}],
 }
 NO_MODEL_REQUEST: dict[str, Any] = {
+    "max_tokens": 512,
+    "messages": [{"role": "user", "content": "hi"}],
+}
+# A model name deliberately absent from the default price table, used to
+# exercise unknown-model pricing with an explicit (not missing) model argument.
+UNPRICED_MODEL = "claude-unknown-test-model"
+UNPRICED_MODEL_REQUEST: dict[str, Any] = {
+    "model": UNPRICED_MODEL,
     "max_tokens": 512,
     "messages": [{"role": "user", "content": "hi"}],
 }
@@ -511,6 +520,85 @@ def test_unknown_cost_with_ceiling_is_fail_closed(mode: str) -> None:
     assert rng.calls == 0
     snap = budget.snapshot()
     assert snap.retry_attempts == 0
+    assert snap.denied_retry_attempts == 0
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_unpriced_model_with_ceiling_is_fail_closed(mode: str) -> None:
+    # A model present on the request but absent from the effective price table
+    # yields an unknown next-retry cost, so a configured ceiling is fail-closed
+    # exactly like a missing model (SPEC section 13.4): the retry is denied
+    # before budget acquisition and the projected cost is reported as unknown
+    # (None). This exercises an explicit unknown model name, not a missing model.
+    budget = make_budget()
+    sleeps: list[float] = []
+    rng = RngCounter()
+    policy = Policy(max_retry_cost_usd=0.05)
+    with pytest.raises(RetryCostCeilingHit) as excinfo:
+        run(
+            mode,
+            [Err(529), Ok()],
+            policy=policy,
+            budget=budget,
+            sleeps=sleeps,
+            rng=rng,
+            request=UNPRICED_MODEL_REQUEST,
+        )
+
+    exc = excinfo.value
+    assert exc.attempts == 1
+    assert exc.estimated_retry_cost_usd is None
+    assert exc.max_retry_cost_usd == 0.05
+    assert isinstance(exc.last_provider_error, FakeProviderError)
+    assert exc.__cause__ is exc.last_provider_error
+    assert sleeps == []
+    assert rng.calls == 0
+    # Cost denial must not consume or deny budget.
+    snap = budget.snapshot()
+    assert snap.retry_attempts == 0
+    assert snap.denied_retry_attempts == 0
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_custom_price_table_prices_unknown_model(mode: str) -> None:
+    # A custom price_table entry makes the otherwise-unpriced model estimable, so
+    # the retry is authorized on cost and the request proceeds normally. The
+    # custom table replaces the built-in table rather than merging with it; that
+    # replacement is what supplies the price for this model.
+    table = {UNPRICED_MODEL: ModelPrice(UNPRICED_MODEL, 3.0, 15.0, "2026-07-12")}
+    budget = make_budget()
+    sleeps: list[float] = []
+    rng = RngCounter()
+    policy = Policy(max_retry_cost_usd=1.0, price_table=table)
+    result = run(
+        mode,
+        [Err(529), Ok("resp")],
+        policy=policy,
+        budget=budget,
+        sleeps=sleeps,
+        rng=rng,
+        request=UNPRICED_MODEL_REQUEST,
+    )
+
+    # Retry cost derives from the custom entry: input text "hi" -> ceil(2/4) = 1
+    # token, output reservation = max_tokens = 512.
+    expected = estimate_retry_cost_usd(
+        model=UNPRICED_MODEL,
+        input_tokens=1,
+        output_tokens=512,
+        price_table=table,
+    )
+    assert expected is not None
+    assert result.response == "resp"
+    assert result.metadata.attempts == 2
+    assert result.metadata.retried is True
+    assert result.metadata.retry_cost_usd is not None
+    assert result.metadata.retry_cost_usd == pytest.approx(expected)
+    assert len(sleeps) == 1
+    assert rng.calls == 1
+    # The retry was authorized, not rejected for unknown pricing.
+    snap = budget.snapshot()
+    assert snap.retry_attempts == 1
     assert snap.denied_retry_attempts == 0
 
 
