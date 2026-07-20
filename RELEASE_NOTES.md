@@ -1,72 +1,97 @@
-# v0.1.0: Budgeted, cost-aware, streaming-safe retries for Anthropic
+# v0.1.0: Retry control for Anthropic
 
 Damper v0.1.0 is the first public release.
 
-Damper is an LLM reliability library. v0.1.0 starts with retry discipline for
-the Anthropic Python SDK.
+Damper is an LLM reliability library. This release focuses on retry discipline
+for the Anthropic Python SDK.
 
-Damper owns the retry loop for wrapped Anthropic `messages.create` and
-`messages.stream` calls, for both sync and async clients.
+It supports wrapped `Anthropic` and `AsyncAnthropic` clients. Damper intercepts
+`messages.create()` and `messages.stream()`. Other client methods continue to
+work as they did before wrapping.
 
-It disables SDK retries for those intercepted calls and replaces them with one
-controlled retry loop. This prevents SDK retries and Damper retries from
-stacking, while bounding retry amplification through a client-local retry
-budget.
+For intercepted calls, Damper disables the Anthropic SDK retry loop and runs
+one retry loop of its own. This avoids stacked retries and lets calls made
+through the same wrapped client share one retry budget.
 
-## Highlights
+## What is included
 
-- **Client-local retry budget**
+### Retry budget
 
-  Within each fixed window, retries are bounded by the configured initial
-  capacity plus a configurable fraction of successful first attempts. During a
-  provider outage, first-attempt successes stop replenishing the budget,
-  available retry capacity drains, and additional retry load is shed.
+Each wrapped client has a fixed window retry budget. A new window starts with
+the configured capacity. Successful first attempts add capacity, and each
+authorized retry consumes one unit.
 
-- **Cost-aware retry ceiling**
+During a provider outage, first attempts stop succeeding. The budget stops
+growing, the remaining capacity drains, and Damper denies further retries.
 
-  An optional per-request USD ceiling limits the cumulative estimated cost of
-  retry attempts. The estimate is a safety guard, not billing truth.
+### Retry cost ceiling
 
-- **Streaming-safe retry boundary**
+Applications can set a USD limit for the cumulative estimated cost of retries
+for one logical request. The estimate is used only for retry decisions. It is
+not billing data.
 
-  Streaming calls are retried only while no output content delta has been
-  received. Once the first output content delta arrives, later failures are
-  surfaced and the stream is not replayed.
+When a ceiling is configured and Damper cannot determine the model price, the
+retry is denied with `RetryCostCeilingHit`. Applications can provide their own
+price table through `Policy`.
 
-- **Anthropic-specific error classification**
+### Streaming behavior
 
-  Retryable, non-retryable, and ambiguous failures are classified using
-  Anthropic-specific rules. Applications can supply their own classifier.
+Damper retries a streaming call only while no output content delta has been
+received.
 
-- **Full-jitter exponential backoff**
+Once the first output content delta arrives, a later failure is returned to the
+caller and the stream is not replayed. This avoids repeating a request after
+the caller may already have consumed part of the output.
 
-  Damper supports capped full-jitter backoff and normalized provider
-  `Retry-After` values.
+### Error handling and backoff
 
-- **OpenTelemetry traces**
+Damper classifies Anthropic failures as retryable, not retryable, or ambiguous.
+Applications can replace the built in classifier when they need different
+rules.
 
-  Damper emits `damper.request` and `damper.attempt` spans. Telemetry safely
-  becomes a no-op when no OpenTelemetry SDK is configured.
+Retries use exponential backoff with full jitter. Damper also parses and honors
+valid Anthropic `Retry-After` values.
 
-- **Response metadata**
+### Telemetry
 
-  Successful responses expose metadata including:
+Damper emits `damper.request` and `damper.attempt` spans through OpenTelemetry.
+When no OpenTelemetry SDK or exporter is configured, telemetry does nothing and
+does not affect the request.
 
-  - `resp.damper.attempts`
-  - `resp.damper.retried`
-  - `resp.damper.total_latency_s`
-  - `resp.damper.retry_cost_usd`
-  - `resp.damper.outcome`
-  - `resp.damper.retry_budget_balance`
+Successful responses include metadata such as:
 
-- **Deterministic outage demo**
+```text
+resp.damper.attempts
+resp.damper.retried
+resp.damper.total_latency_s
+resp.damper.retry_cost_usd
+resp.damper.outcome
+resp.damper.retry_budget_balance
+```
 
-  In the included fake brownout simulation, 1,000 logical requests produce
-  3,000 provider attempts with a naive three-attempt retry loop and 1,010
-  attempts (about 1.01x) with the demo's configured Damper policy.
+### Outage demo
 
-  These numbers belong to the deterministic simulation. The exact 1.01x figure
-  is the observed result. The 1.1x value is the demo's pass/fail threshold.
+The repository includes a deterministic fake brownout simulation.
+
+For 1,000 logical requests, a plain retry loop that allows three attempts makes
+3,000 provider attempts. With the demo policy, Damper makes 1,010 provider
+attempts.
+
+```text
+Naive retry loop
+logical requests:        1000
+provider attempts:       3000
+amplification:           3.00x
+
+Damper
+logical requests:        1000
+provider attempts:       1010
+amplification:           1.01x
+budget exhausted events: 995
+```
+
+The 1.01x result belongs to this deterministic simulation. It is not a general
+product guarantee. The demo uses 1.1x as its pass or fail threshold.
 
 ## Install
 
@@ -74,40 +99,37 @@ budget.
 pip install damper
 ```
 
-Requirements:
+Damper requires Python 3.10 or newer, `anthropic` 0.30 or newer, and
+`opentelemetry-api` 1.20 or newer.
 
-- Python >= 3.10
-- `anthropic` >= 0.30
-- `opentelemetry-api` >= 1.20
+The OpenTelemetry SDK and exporter are optional.
 
-The OpenTelemetry SDK/exporter is optional. Without it, Damper's telemetry is a
-safe no-op.
+## Not included in v0.1
 
-## Scope
-
-v0.1 ships one complete thing:
+This release does not include:
 
 ```text
-budgeted, cost-aware, streaming-safe retries for Anthropic LLM calls
+caching
+routing
+prompt management
+evals
+guardrails
+a standalone proxy
+support for multiple providers
+distributed retry budgets
+circuit breakers
+request hedging
+adaptive timeouts
+fallback chains
 ```
 
-Not in v0.1:
+v0.1 focuses on budgeted retries, retry cost control, and safe streaming
+behavior for Anthropic calls.
 
-- caching
-- routing
-- prompt management
-- evals
-- guardrails
-- standalone proxy
-- multi-provider support
-- distributed retry budgets
-- circuit breakers
-- hedging
-- adaptive timeouts
-- fallback chains
+## Roadmap
 
-Roadmap: v0.2 adds request hedging. Every version must be independently useful
-before the next milestone starts.
+The next planned milestone is request hedging in v0.2. Later milestones will be
+decided after real use and contributor feedback.
 
 ## License
 

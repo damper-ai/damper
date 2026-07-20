@@ -2,128 +2,120 @@
 
 **Reliability control for Anthropic LLM clients.**
 
-Damper is a reliability library for LLM applications. v0.1 focuses on budgeted,
-cost-aware, streaming-safe retries for the Anthropic Python SDK.
+Damper is an LLM reliability library. v0.1 starts with retry control for the
+Anthropic Python SDK.
 
-v0.1 supports `Anthropic` and `AsyncAnthropic`. It intercepts `messages.create()` and
-`messages.stream()`. Other client methods pass through unchanged.
+It supports `Anthropic` and `AsyncAnthropic`. It intercepts
+`messages.create()` and `messages.stream()`. Other client methods pass through
+unchanged.
 
 ```python
 from anthropic import Anthropic
-from damper import resilient, Policy
+from damper import Policy, resilient
 
 client = resilient(Anthropic(), policy=Policy())
 
-resp = client.messages.create(
+response = client.messages.create(
     model="claude-sonnet-4-6",
     max_tokens=512,
     messages=[{"role": "user", "content": "Explain retry storms"}],
 )
 
-print(resp.damper.attempts)
-print(resp.damper.retry_cost_usd)
+print(response.damper.attempts)
+print(response.damper.retry_cost_usd)
 ```
 
-> Damper v0.1.0 supports wrapped Anthropic clients only. As a pre-1.0 library,
-> the API may continue to evolve in future minor releases.
+> Damper v0.1.0 supports wrapped Anthropic clients only. The API may continue
+> to evolve while the project is below 1.0.
 
 ---
 
 ## Why Damper exists
 
-LLM provider calls are not normal HTTP calls.
+An LLM call has a different failure profile from a typical HTTP request. It may
+take a long time to produce output, fail partway through a stream, or become
+slow across many requests at once. Retrying also repeats some amount of token
+cost.
 
-They have:
-
-- long-tail latency
-- correlated provider failures
-- streaming edge cases
-- token-based cost
-- retries that can multiply load during outages
-- partial-output failure modes
-- incident behavior that is often invisible to operators
-
-Most SDKs provide competent per-request retry behavior. That is useful, but it is not enough during a provider brownout.
-
-If every request retries independently, your application can amplify the outage:
+The Anthropic SDK already handles retries for an individual request. That is
+useful for isolated failures. The problem appears when many requests fail
+together and each one starts its own retry sequence.
 
 ```text
 10,000 logical requests
-x 3 attempts each
-= 30,000 provider attempts during the brownout
+x 3 attempts
+= 30,000 provider attempts
 ```
 
-Damper gives applications using Anthropic explicit control over retry admission, retry
-cost, streaming failures, and retry telemetry.
+During a provider brownout, that extra traffic can make the situation worse.
+Damper adds retry admission, cost limits, streaming rules, and telemetry around
+calls made through the same wrapped client.
 
 ---
 
-## What v0.1 does
-
-v0.1 focuses on one problem:
-
-> LLM retries should not amplify provider outages, burn unbounded token cost, retry unsafe streaming failures, or disappear from telemetry.
+## What v0.1 handles
 
 Damper v0.1 provides:
 
-- client-local retry budgets
-- cost-aware retry ceilings
+- a client-local retry budget
+- a cumulative retry cost ceiling
 - Anthropic-specific error classification
 - exponential backoff with full jitter
 - Anthropic `Retry-After` handling
-- streaming-safe retry semantics
-- OpenTelemetry traces
+- safe retry behavior for streaming calls
+- OpenTelemetry request and attempt spans
 - response metadata
-- a fake outage demo
+- a deterministic outage demo
+
+The scope is intentionally narrow. v0.1 is about retry discipline for
+Anthropic calls.
 
 ---
 
 ## Retry budget
 
-Damper uses a client-local, fixed-window retry budget. One budget belongs to one wrapped
-client instance.
+Each wrapped client has its own fixed-window retry budget.
 
-Each window starts with the configured initial capacity. Successful first attempts add
-capacity. Retries consume it. Nothing carries across a window boundary.
+A new window starts with `retry_budget_min_tokens` units of retry capacity.
+Successful first attempts add capacity according to `retry_budget_ratio`.
+An authorized retry consumes one unit. Unused capacity does not carry into the
+next window.
 
-Within a window, retries are bounded by:
+Within one window, the number of authorized retries is bounded by:
 
 ```text
 retry_budget_min_tokens
 + retry_budget_ratio * successful first-attempt successes
 ```
 
-With the default policy, each fixed window starts with 10 units of retry capacity. One
-hundred successful first attempts in that window add 10 more units.
+With the default policy, each window starts with 10 units. The ratio is `0.1`,
+so 100 successful first attempts in the same window add 10 more units.
 
-During a provider brownout, first attempts stop succeeding, so the budget stops being
-replenished, drains, and Damper stops retrying.
-
-That is the core behavior:
-
-```text
-shed retry load instead of amplifying the outage
-```
+When the provider degrades, first attempts stop succeeding. The budget then
+stops growing, existing capacity drains, and further retries are denied. This
+limits retry amplification without requiring a separate gateway or service.
 
 ---
 
-## Streaming rule
+## Streaming behavior
 
-Damper retries a streaming call only while no output content delta has been received.
-Once the first output content delta arrives, later failures are surfaced and the stream is
-not replayed.
+Damper retries a streaming call only while no output content delta has been
+received.
 
-This is intentional.
-
-After streaming starts, the caller may already have consumed partial output. In agentic or tool-use flows, blindly replaying can duplicate work or create inconsistent behavior.
+Once the first output content delta arrives, later failures are surfaced and
+the stream is not replayed. The caller may already have consumed partial
+output, so replaying the request could duplicate work or produce inconsistent
+results.
 
 ---
 
-## Cost ceiling
+## Retry cost ceiling
 
-Retries are not free.
+A retry repeats part or all of the request cost. This matters for large prompts
+and long output reservations.
 
-A failed retry against a large prompt can burn real money. Damper can enforce a per-request retry cost ceiling:
+Damper can block another retry when the cumulative estimated retry cost would
+cross a configured limit:
 
 ```python
 from damper import Policy
@@ -131,18 +123,30 @@ from damper import Policy
 policy = Policy(max_retry_cost_usd=0.05)
 ```
 
-The retry cost is an estimate used for safety. It is not billing truth.
+Damper's built-in model prices are a versioned snapshot of Anthropic's published
+pricing. They are used only for retry-cost estimates and are not billing data.
+
+Anthropic may change model pricing between Damper releases. Applications that
+need stricter control can provide an updated `price_table` through `Policy`
+without waiting for a new Damper release.
+
+If a retry cost ceiling is configured and Damper cannot determine the model
+price, the retry is denied and `RetryCostCeilingHit` is raised. Applications
+can provide a `price_table` through `Policy` for models that are not included
+in Damper's built-in table.
+
+A custom `price_table` replaces the built-in table rather than merging with it.
 
 ---
 
 ## Configuration
 
-`Policy` holds every knob. These are the complete defaults:
+`Policy` contains the public configuration for v0.1:
 
 ```python
 from damper import Policy
 
-Policy(
+policy = Policy(
     max_attempts=3,
     per_attempt_timeout=60.0,
     max_retry_cost_usd=None,
@@ -158,35 +162,36 @@ Policy(
 )
 ```
 
-When the retry budget is exhausted, `on_budget_exhausted="raise"` raises
-`RetryBudgetExhausted`. `on_budget_exhausted="passthrough"` surfaces the last provider
-error directly.
+When the retry budget blocks a retry:
 
-`Policy` is frozen. Build a new one to change behavior.
+- `on_budget_exhausted="raise"` raises `RetryBudgetExhausted`
+- `on_budget_exhausted="passthrough"` surfaces the last provider error
+
+`Policy` is frozen. Create a new instance when you need different settings.
 
 ---
 
 ## Async clients
 
-`resilient()` accepts `AsyncAnthropic` and returns an async proxy:
+`resilient()` also supports `AsyncAnthropic`:
 
 ```python
 import asyncio
 
 from anthropic import AsyncAnthropic
-from damper import resilient, Policy
+from damper import Policy, resilient
 
 
 async def main() -> None:
     client = resilient(AsyncAnthropic(), policy=Policy())
 
-    resp = await client.messages.create(
+    response = await client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=512,
         messages=[{"role": "user", "content": "Explain retry storms"}],
     )
 
-    print(resp.damper.attempts)
+    print(response.damper.attempts)
 
 
 asyncio.run(main())
@@ -196,16 +201,10 @@ asyncio.run(main())
 
 ## Telemetry
 
-Damper emits OpenTelemetry spans for logical requests and provider attempts.
+Damper emits one `damper.request` span for the logical request and one
+`damper.attempt` span for each provider attempt.
 
-Spans:
-
-```text
-damper.request
-damper.attempt
-```
-
-Stable attributes include:
+Stable Damper attributes include:
 
 ```text
 damper.attempts
@@ -220,47 +219,52 @@ damper.provider
 damper.model
 ```
 
-Attributes are emitted where their value is known. `damper.provider` and `damper.model`
-require the request to carry them, `damper.cost.estimate_usd` requires a priced model, and
-`damper.attempt.backoff_s` is set on an attempt only when a retry follows it.
+Some attributes are conditional. Provider and model attributes require those
+values to be present on the request. Cost estimates require a priced model.
+`damper.attempt.backoff_s` is added only when another retry follows the
+attempt.
 
-If no OpenTelemetry SDK/exporter is configured, telemetry is a no-op.
-
----
-
-## Why not Tenacity?
-
-Tenacity is a strong generic retry library.
-
-Damper is narrower and more opinionated for LLM provider calls.
-
-Damper understands:
-
-- token cost
-- retry budgets
-- streaming retry boundaries
-- Anthropic-specific error classification
-- Anthropic `Retry-After` handling
-- retry-decision telemetry
+If no OpenTelemetry SDK or exporter is configured, these calls become no-ops.
 
 ---
 
-## Why not the SDK's built-in retries?
+## How is Damper different from Tenacity?
 
-The Anthropic SDK provides per-request retries.
+Tenacity is a mature general-purpose retry library. It gives developers
+flexible primitives for retrying Python functions.
 
-Damper controls retry admission across calls made through the same wrapped client
-instance.
+Damper is focused on reliability around LLM calls. In v0.1 it provides
+Anthropic-specific retry control directly:
 
-On top of the SDK's per-request behavior, Damper adds:
+- fixed-window retry budgets shared across calls on one wrapped client
+- cumulative retry cost ceilings
+- one Damper-owned retry loop for intercepted Anthropic calls
+- no retry after the first output content delta
+- Anthropic-specific error classification and `Retry-After` normalization
+- response metadata and OpenTelemetry spans for retry decisions
+
+Use Tenacity when you need general-purpose retry primitives or want to build
+your own policy.
+
+Use Damper when you want these controls around Anthropic calls without
+assembling the policy and SDK integration yourself.
+
+---
+
+## How is Damper different from the Anthropic SDK retries?
+
+The Anthropic SDK handles retries inside an individual request.
+
+Damper adds admission control across calls made through the same wrapped client.
+It also adds:
 
 - client-local retry budgeting
-- retry-cost estimation
+- retry cost estimation
 - response metadata
 - `damper.request` and `damper.attempt` spans
 
-For intercepted calls, Damper disables the SDK's retries and replaces them with one owned
-retry loop, so the two do not stack.
+For intercepted calls, Damper disables the SDK retry loop and runs one
+Damper-owned loop. The two retry layers do not stack.
 
 ---
 
@@ -295,17 +299,21 @@ pip install -e ".[dev]"
 ## Examples
 
 ```text
-examples/01_basic.py        # wrap a client, read resp.damper metadata (needs a key)
-examples/02_outage_demo.py  # deterministic brownout: naive per-request retries vs Damper
-examples/03_telemetry.py    # view damper.request / damper.attempt spans via a console exporter
+examples/01_basic.py        # basic client wrapping and response metadata
+examples/02_outage_demo.py  # deterministic retry amplification demo
+examples/03_telemetry.py    # console output for Damper spans
 ```
 
-`examples/02_outage_demo.py --fake` runs in CI and exits non-zero if Damper fails
-to bound retry amplification. It is deterministic and network-free.
+The outage demo is deterministic and does not use the network:
 
-In that fake brownout every request is failed twice and then succeeds, so a
-naive per-request retry loop makes three attempts per request while Damper's
-retry budget drains and sheds the rest:
+```bash
+python examples/02_outage_demo.py --fake
+```
+
+In the demo, every request fails twice before it succeeds. A plain
+three-attempt retry loop therefore makes 3,000 provider attempts for 1,000
+logical requests. With the configured Damper policy, the retry budget drains
+and the run makes 1,010 provider attempts.
 
 ```text
 Naive per-request retries:
@@ -320,22 +328,22 @@ Damper:
   budget exhausted events: 995
 ```
 
-The exact numbers are properties of this deterministic fake, not a claim about
-any specific Anthropic SDK version or real outage. The baseline is a plain
-per-request retry loop, not a reproduction of the SDK's retry behavior.
+These numbers belong to this deterministic simulation. They are not a claim
+about every outage or every policy. The demo uses `1.1x` as its pass or fail
+threshold.
 
 ---
 
 ## Non-goals for v0.1
 
-Damper v0.1 does not build:
+Damper v0.1 does not include:
 
 - caching
 - routing
 - prompt management
 - evals
 - guardrails
-- standalone proxy
+- a standalone proxy
 - multi-provider support
 - distributed retry budgets
 - circuit breakers
@@ -343,32 +351,25 @@ Damper v0.1 does not build:
 - adaptive timeouts
 - fallback chains
 
-This is intentional.
-
-v0.1 ships one complete thing:
-
-```text
-budgeted, cost-aware, streaming-safe retries for Anthropic LLM calls
-```
+The current release focuses on budgeted, cost-aware, streaming-safe retries for
+Anthropic calls.
 
 ---
 
 ## Roadmap
 
-Near-term:
-
 ```text
-v0.1: budgeted retries for Anthropic
+v0.1: retry discipline for Anthropic
 v0.2: request hedging
 ```
 
-The rule: every version must be independently useful before the next milestone starts.
+Each version should be useful on its own before the next milestone starts.
 
 ---
 
 ## Development
 
-Quality gates:
+Run the same checks used by CI:
 
 ```bash
 ruff check .
@@ -377,11 +378,10 @@ pytest
 python examples/02_outage_demo.py --fake
 ```
 
-Tests must not require:
+Tests must not require network access, provider API keys, or external services.
 
-- network access
-- real provider API keys
-- external services
+See `CONTRIBUTING.md` for setup and contribution guidelines.
+`CLAUDE.md` contains additional guidance for coding agents.
 
 ---
 
@@ -403,9 +403,6 @@ damper/
 tests/
 examples/
 ```
-
-See `CONTRIBUTING.md` for development setup and contribution guidelines.
-`CLAUDE.md` contains additional guidance for coding agents.
 
 ---
 
