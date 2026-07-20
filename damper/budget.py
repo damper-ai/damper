@@ -1,7 +1,6 @@
 """Client-local fixed-window retry budget.
 
-Reliability-critical. Implements the accounting model in ``SPEC.md`` section
-12 with fixed-window rollover: each window is
+Reliability-critical. Uses fixed-window rollover: each window is
 ``Policy.retry_budget_window`` seconds long. At the start of every public
 operation, while holding the module's :class:`threading.Lock`, the budget
 checks whether the current window has elapsed and, if so, resets its state
@@ -37,8 +36,7 @@ Scope
 -----
 
 One budget per wrapped client instance. No process-global state, no
-distributed coordination, no external dependencies. See ``SPEC.md`` section
-12.3.
+distributed coordination, no external dependencies.
 """
 
 from __future__ import annotations
@@ -120,7 +118,7 @@ class RetryBudget:
 
         Must be called with ``self._lock`` held. Uses ``>=`` at the
         boundary so an elapsed time exactly equal to ``window`` triggers
-        rollover, matching the accounting model in the spec.
+        rollover.
         """
         now = self._clock()
         if now - self._window_started_at >= self._window:

@@ -5,10 +5,10 @@ the wrapped client but intercepts ``messages.create`` and ``messages.stream``
 (sync and async), routing them through Damper's owned retry executor. Everything
 else passes through unchanged.
 
-Reliability-critical (``CLAUDE.md``). This module owns two things the executor
+Reliability-critical. This module owns two things the executor
 deliberately does not:
 
-* **Retry ownership** (``SPEC.md`` section 7). At wrap time Damper builds a
+* **Retry ownership**. At wrap time Damper builds a
   configured client with ``with_options(max_retries=0, timeout=...)`` so the
   Anthropic SDK never retries underneath Damper. If SDK retries cannot be
   disabled via the supported mechanism, wrapping fails with
@@ -17,12 +17,12 @@ deliberately does not:
   ownership -- "we produced a ``max_retries=0`` client via the supported
   mechanism" -- not a runtime proof the SDK never retries.
 
-* **Retry-After normalization** (``SPEC.md`` sections 14.4 / 14.5, SESSION 6).
-  Reading and normalizing the provider ``Retry-After`` response header lives here
+* **Retry-After normalization**. Reading and normalizing the provider
+  ``Retry-After`` response header lives here
   and never in :mod:`damper.backoff`. The executor and ``compute_backoff`` only
   ever receive an already-normalized ``float | None`` duration.
 
-The streaming boundary (``SPEC.md`` section 15) is enforced structurally by the
+The streaming boundary is enforced structurally by the
 stream proxy: the first content token is pulled *inside* the retry loop, so a
 failure before it can retry; once the first token is handed to the caller, any
 later failure is raised during the caller's own iteration, outside the retry
@@ -43,11 +43,11 @@ from damper import Policy, RetryOwnershipError
 from damper._executor import execute, execute_async
 from damper.budget import RetryBudget
 
-# Telemetry provider label for wrapped Anthropic calls (SPEC section 18.2).
+# Telemetry provider label for wrapped Anthropic calls.
 _PROVIDER = "anthropic"
 
 # --------------------------------------------------------------------------- #
-# Policy validation (SPEC section 8.2), enforced at wrap time.
+# Policy validation, enforced at wrap time.
 # --------------------------------------------------------------------------- #
 
 
@@ -65,7 +65,7 @@ def _require_real_number(name: str, value: object) -> float:
 
 
 def _validate_policy(policy: Policy) -> None:
-    """Reject invalid :class:`Policy` field values per ``SPEC.md`` section 8.2.
+    """Reject invalid :class:`Policy` field values.
 
     Raises a field-specific :class:`ValueError`. Does not mutate the policy and
     does not normalize invalid values. Called at wrap time in :func:`resilient`
@@ -299,7 +299,7 @@ def _is_async_client(client: Any) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# Streaming boundary (SPEC section 15).
+# Streaming boundary.
 #
 # The first content token is pulled *inside* the retry loop, so a failure before
 # it can retry (a fresh stream is opened). Once the first token is handed back,
@@ -768,11 +768,10 @@ def resilient(client: Any, *, policy: Policy | None = None) -> Any:
     Raises
     ------
     ValueError
-        If ``policy`` (or the default policy) has an invalid field value
-        (``SPEC.md`` section 8.2).
+        If ``policy`` (or the default policy) has an invalid field value.
     RetryOwnershipError
         If Damper cannot disable the SDK's own retries via the supported
-        ``with_options`` mechanism (``SPEC.md`` section 7).
+        ``with_options`` mechanism.
     """
     resolved = Policy() if policy is None else policy
     _validate_policy(resolved)

@@ -1,15 +1,14 @@
 """Scripted fake provider outcomes for Damper tests.
 
-This module defines outcome dataclasses that later sessions will use to script
-sequences like ``[Err(529), Err(529), Ok()]`` against a fake Anthropic client.
+This module defines outcome dataclasses used to script sequences like
+``[Err(529), Err(529), Ok()]`` against a fake Anthropic client.
 
-SESSION 1 provided only enough machinery for a smoke test that proves scripted
-outcomes are consumed in order (``ScriptedFake``). SESSION 6 adds fake sync/async
-Anthropic clients (``FakeAnthropic`` / ``FakeAsyncAnthropic``) that mimic the
+``ScriptedFake`` consumes scripted outcomes in order. ``FakeAnthropic`` and
+``FakeAsyncAnthropic`` are fake sync/async Anthropic clients that mimic the
 ``messages.create`` / ``messages.stream`` surface and ``with_options`` retry
 ownership.
 
-No network access. The SESSION 6 fakes raise **real** ``anthropic`` error types
+No network access. The fakes raise **real** ``anthropic`` error types
 (``APIStatusError`` / ``APIConnectionError`` / ``APITimeoutError``) constructed
 network-free from an ``httpx`` request/response, so classification and
 ``Retry-After`` header reading exercise the same shapes the wrapper sees in
@@ -29,9 +28,9 @@ import httpx
 class FakeProviderError(Exception):
     """Baseline exception raised by :class:`Err` outcomes.
 
-    Later sessions will introduce richer fake exception hierarchies that mimic
-    the ``anthropic`` SDK's error taxonomy. SESSION 1 uses a single class so
-    the smoke tests do not depend on the SDK being importable.
+    A single class is used, rather than a richer fake exception hierarchy that
+    mimics the ``anthropic`` SDK's error taxonomy, so tests that rely on it do
+    not depend on the SDK being importable.
     """
 
     def __init__(
@@ -57,8 +56,7 @@ class FakeConnectionResetError(Exception):
 class Ok:
     """Scripted successful outcome.
 
-    ``payload`` stands in for a provider response object; later sessions will
-    replace it with a fake ``anthropic.types.Message``-shaped value.
+    ``payload`` stands in for a provider response object.
     """
 
     payload: Any = None
@@ -84,8 +82,8 @@ class Timeout:
 class StreamThenReset:
     """Scripted streaming outcome that emits N tokens then resets.
 
-    Used in SESSION 6 tests to verify that Damper does not retry once any
-    content has been streamed to the caller.
+    Used to verify that Damper does not retry once any content has been
+    streamed to the caller.
     """
 
     tokens: int = 3
@@ -96,8 +94,8 @@ class StreamThenReset:
 class ConnectionResetBeforeFirstToken:
     """Scripted streaming outcome that resets before any content arrives.
 
-    Used in SESSION 6 tests to verify that Damper may retry when the stream
-    has not yet produced content.
+    Used to verify that Damper may retry when the stream has not yet produced
+    content.
     """
 
     message: str = "connection reset before first token"
@@ -110,11 +108,9 @@ Outcome = Ok | Err | Timeout | StreamThenReset | ConnectionResetBeforeFirstToken
 class ScriptedFake:
     """Consumes a scripted sequence of outcomes in order.
 
-    This is a deliberately minimal fake for SESSION 1. It exposes a single
-    :meth:`next_outcome` method that pops the next scripted outcome and either
-    returns the ``Ok`` payload or raises a fake exception mirroring the
-    scripted failure. Later sessions extend this into full sync/async
-    ``messages.create`` and ``messages.stream`` fakes.
+    A deliberately minimal fake. It exposes a single :meth:`next_outcome`
+    method that pops the next scripted outcome and either returns the ``Ok``
+    payload or raises a fake exception mirroring the scripted failure.
     """
 
     outcomes: deque[Outcome] = field(default_factory=deque)
@@ -149,7 +145,7 @@ class ScriptedFake:
 
 
 # --------------------------------------------------------------------------- #
-# SESSION 6: fake Anthropic clients.
+# Fake Anthropic clients.
 # --------------------------------------------------------------------------- #
 
 _FAKE_REQUEST = httpx.Request("POST", "https://api.anthropic.test/v1/messages")

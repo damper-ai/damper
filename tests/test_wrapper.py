@@ -1,9 +1,9 @@
-"""Wrapper tests (SESSION 6): proxy behavior, create paths, policy validation,
-and Retry-After header normalization.
+"""Wrapper tests: proxy behavior, create paths, policy validation, and
+Retry-After header normalization.
 
-The executor already proves (SESSION 5) that a normalized Retry-After value is
-used exactly and uncapped, and that ``None`` falls back to full jitter; these
-tests prove the wrapper produces the correct normalized ``float | None`` from a
+The executor tests already prove that a normalized Retry-After value is used
+exactly and uncapped, and that ``None`` falls back to full jitter; these tests
+prove the wrapper produces the correct normalized ``float | None`` from a
 provider ``Retry-After`` header (numeric, HTTP-date, past, negative, invalid,
 missing, case-insensitive).
 
@@ -179,7 +179,7 @@ def test_extractor_without_response_is_none() -> None:
     assert extract(anthropic_connection_error()) is None
 
 
-# ---------------------- policy validation (SPEC 8.2) ----------------------- #
+# -------------------------- policy validation ------------------------------ #
 
 
 @pytest.mark.parametrize(

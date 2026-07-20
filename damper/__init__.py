@@ -33,9 +33,10 @@ class DamperError(Exception):
 class RetryBudgetExhausted(DamperError):
     """Raised when the client-local retry budget denies a retry.
 
-    Carries the metadata required by ``SPEC.md`` section 9.2. The final provider
-    error is preserved both in :attr:`last_provider_error` and, when raised via
-    ``raise ... from``, as ``__cause__``.
+    Exposes :attr:`attempts`, :attr:`retry_budget_balance`,
+    :attr:`retry_budget_ratio`, and :attr:`last_provider_error`. The final
+    provider error is preserved both in :attr:`last_provider_error` and, when
+    raised via ``raise ... from``, as ``__cause__``.
     """
 
     def __init__(
@@ -60,8 +61,8 @@ class RetryBudgetExhausted(DamperError):
 class RetriesExhausted(DamperError):
     """Raised when ``max_attempts`` has been reached without success.
 
-    Carries the metadata required by ``SPEC.md`` section 9.2, including a bounded
-    per-attempt outcome record (:attr:`attempt_outcomes`).
+    Exposes :attr:`attempts`, a bounded per-attempt outcome record
+    (:attr:`attempt_outcomes`), and :attr:`last_provider_error`.
     """
 
     def __init__(
@@ -80,9 +81,10 @@ class RetriesExhausted(DamperError):
 class RetryCostCeilingHit(DamperError):
     """Raised when the next retry would exceed ``max_retry_cost_usd``.
 
-    Carries the metadata required by ``SPEC.md`` section 9.2. The projected
-    cumulative retry cost is ``None`` when it cannot be estimated (SPEC section
-    13.4); the configured ceiling is always known when this is raised.
+    Exposes :attr:`attempts`, :attr:`estimated_retry_cost_usd`,
+    :attr:`max_retry_cost_usd`, and :attr:`last_provider_error`. The projected
+    cumulative retry cost is ``None`` when it cannot be estimated; the configured
+    ceiling is always known when this is raised.
     """
 
     def __init__(
@@ -111,8 +113,8 @@ class RetryCostCeilingHit(DamperError):
 class RetryOwnershipError(DamperError):
     """Raised when Damper cannot take exclusive ownership of retries.
 
-    Carries the metadata required by ``SPEC.md`` section 9.2. Raised at wrap time
-    by the Anthropic wrapper (SESSION 6), not by the executor.
+    Exposes :attr:`reason` and :attr:`client_type`. Raised at wrap time by the
+    Anthropic wrapper, not by the executor.
     """
 
     def __init__(self, *, reason: str, client_type: str) -> None:
@@ -125,9 +127,9 @@ class RetryOwnershipError(DamperError):
 class Policy:
     """Configuration for a Damper-wrapped client.
 
-    All defaults are drawn from ``SPEC.md`` and are chosen to be production-sane
-    without further tuning. Fields are frozen after construction; build a new
-    :class:`Policy` to change behavior.
+    All defaults are chosen to be production-sane without further tuning. Fields
+    are frozen after construction; build a new :class:`Policy` to change
+    behavior.
     """
 
     # Per-request limits

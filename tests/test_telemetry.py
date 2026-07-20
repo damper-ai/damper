@@ -1,4 +1,4 @@
-"""Telemetry tests (SESSION 7, SPEC section 18).
+"""Telemetry tests.
 
 Uses a LOCAL ``TracerProvider`` + ``SimpleSpanProcessor`` +
 ``InMemorySpanExporter`` injected through ``telemetry.make_trace_factory`` and
@@ -7,7 +7,7 @@ mutation, no ``set_tracer_provider``, no network.
 
 Proves: request span parents attempt spans; the attempt span wraps the real
 provider call; backoff is outside the attempt span but inside the request span;
-the SPEC attributes and outcomes are emitted; unknown provider/model is omitted
+the documented attributes and outcomes are emitted; unknown provider/model is omitted
 safely; and -- crucially -- telemetry never changes retry behavior (identical
 provider-attempt counts and results/exceptions with telemetry recording,
 disabled, or deliberately failing).
@@ -437,7 +437,7 @@ async def test_async_failing_tracer_does_not_change_behavior() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Streaming span boundary (SPEC section 15 + the v0.1 boundary documented in
+# Streaming span boundary (the v0.1 boundary documented in
 # damper/telemetry.py). The request span covers retry-controlled establishment
 # only; it is ended before the proxy reaches the caller.
 # --------------------------------------------------------------------------- #

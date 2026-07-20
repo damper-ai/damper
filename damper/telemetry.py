@@ -1,4 +1,4 @@
-"""OpenTelemetry tracing for Damper (``SPEC.md`` section 18).
+"""OpenTelemetry tracing for Damper.
 
 Runtime dependency is ``opentelemetry-api`` only. When no OTel SDK/exporter is
 configured, ``trace.get_tracer`` returns a no-op tracer whose spans are
@@ -72,7 +72,7 @@ if TYPE_CHECKING:
     from damper.budget import RetryBudget
 
 # --------------------------------------------------------------------------- #
-# Outcome values (SPEC section 18, "Outcomes"). Stable telemetry contract.
+# Outcome values. Stable telemetry contract.
 # --------------------------------------------------------------------------- #
 
 Outcome = Literal[
@@ -263,7 +263,8 @@ class _OTelRequestRecorder:
             self._span = self._tracer.start_span(_REQUEST_SPAN)
             self._ctx = trace.set_span_in_context(self._span)
             if self._span.is_recording():
-                # Provider/model set at creation, not only at the end (SPEC 18.8).
+                # Provider/model set at creation, not only at the end, so a span
+                # dropped before completion still carries them.
                 if self._provider:
                     self._span.set_attribute("damper.provider", self._provider)
                     self._span.set_attribute("gen_ai.provider.name", self._provider)

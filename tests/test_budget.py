@@ -1,11 +1,10 @@
 """Tests for :mod:`damper.budget`.
 
-Pins the per-window invariant described in SPEC.md section 12.5:
+Pins the per-window invariant:
 
     retry_attempts <= min_tokens + ratio * successful_first_attempts
 
-Weakening any assertion here requires updating the spec first. All tests
-use a fake or shared clock so wall-clock ``sleep`` is never necessary.
+All tests use a fake or shared clock so wall-clock ``sleep`` is never necessary.
 """
 
 from __future__ import annotations

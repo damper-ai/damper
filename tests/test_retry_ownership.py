@@ -1,4 +1,4 @@
-"""Retry-ownership tests (SESSION 6, SPEC section 7).
+"""Retry-ownership tests.
 
 Damper must own retries for intercepted calls and never stack on top of the
 Anthropic SDK's own retries. With a fake client the ``[529, ok] -> 2 attempts``

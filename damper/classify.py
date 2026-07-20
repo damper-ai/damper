@@ -1,8 +1,7 @@
 """Provider error classification.
 
 Data-driven mapping from provider errors and low-level transport failures to
-:class:`ErrorClass` values, per ``SPEC.md`` section 14 and the SESSION 3 design
-in ``.local/PLAYBOOK.md``.
+:class:`ErrorClass` values.
 
 Design notes
 ------------

@@ -1,8 +1,7 @@
 """Tests for :mod:`damper.cost` and :mod:`damper.prices`.
 
-Covers the SESSION 4 test matrix from ``.local/PLAYBOOK.md`` and the corrections
-agreed with Amit: unknown estimates are ``None``, a configured ceiling denies an
-unknown cost, the ceiling is cumulative across retries with a strict
+Covers the cost matrix: unknown estimates are ``None``, a configured ceiling
+denies an unknown cost, the ceiling is cumulative across retries with a strict
 greater-than boundary, ``max_tokens`` drives the output reservation, non-text
 content yields unknown, and strict numeric validation. No network, no provider
 token-counting API.

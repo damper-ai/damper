@@ -1,7 +1,6 @@
 """Tests for :mod:`damper.backoff`.
 
-Covers the SESSION 3 backoff matrix from ``.local/PLAYBOOK.md`` and the
-corrections agreed with Amit: deterministic injected RNG, overflow-safe upper
+Covers the backoff matrix: deterministic injected RNG, overflow-safe upper
 bound, retry-after semantics, and strict input/RNG validation. No sleeping, no
 network.
 """

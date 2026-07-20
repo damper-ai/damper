@@ -1,9 +1,8 @@
 """Tests for :mod:`damper.classify`.
 
-Covers the SESSION 3 classification matrix from ``.local/PLAYBOOK.md`` and the
-corrections agreed with Amit. Uses real Anthropic SDK exception types where they
-construct cleanly network-free, plus lightweight fakes for the broader status
-matrix and edge cases. No network access.
+Covers the classification matrix. Uses real Anthropic SDK exception types where
+they construct cleanly network-free, plus lightweight fakes for the broader
+status matrix and edge cases. No network access.
 """
 
 from __future__ import annotations

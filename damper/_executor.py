@@ -1,21 +1,20 @@
 """Retry loop and decision state machine.
 
-Drives a single logical request through the owned retry pipeline described in
-``SPEC.md`` section 17: attempt, classify, streaming boundary, budget, cost
-ceiling, backoff, and response metadata. Sync and async entry points share one
+Drives a single logical request through the owned retry pipeline: attempt,
+classify, streaming boundary, budget, cost ceiling, backoff, and response
+metadata. Sync and async entry points share one
 synchronous decision helper (:func:`_plan_after_failure`) so both paths make
 byte-for-byte identical retry decisions; only "call the attempt" and "sleep"
 differ.
 
-Reliability-critical. Kept small and explicit per ``CLAUDE.md``. This module
+Reliability-critical, so the code here is kept small and explicit. This module
 owns no provider or HTTP knowledge: the caller injects an ``attempt`` callable,
 a ``sleep`` function, a monotonic ``clock``, an ``rng``, a
 ``retry_after_extractor`` that returns an already-normalized ``float | None``
-duration (the executor never parses headers -- SESSION 6 owns that), and a
-``stream_started_probe``.
+duration (the executor never parses headers; the provider wrapper owns that),
+and a ``stream_started_probe``.
 
-Decision order (``SPEC.md`` section 17, with the corrections approved for
-SESSION 5)::
+Decision order::
 
     call attempt
     on success:
@@ -92,9 +91,9 @@ _OUTCOME_BY_EXCEPTION: dict[type[DamperError], str] = {
 class AttemptOutcome:
     """Bounded record of a single provider attempt.
 
-    Retains only summary data (``SPEC.md`` section 9.2 / SESSION 5 correction 8):
-    never response bodies, prompts, or streamed content. The number of records
-    for a logical request is bounded by ``max_attempts``.
+    Retains only summary data: never response bodies, prompts, or streamed
+    content. The number of records for a logical request is bounded by
+    ``max_attempts``.
     """
 
     attempt: int
@@ -106,7 +105,7 @@ class AttemptOutcome:
 
 @dataclass(frozen=True)
 class DamperMetadata:
-    """Per-request result metadata (``SPEC.md`` section 10).
+    """Per-request result metadata.
 
     ``retry_cost_usd`` is ``float | None``: ``None`` means the cumulative retry
     cost could not be estimated (unknown), never that a retry was free.
@@ -124,8 +123,8 @@ class DamperMetadata:
 class ExecutionResult:
     """A successful provider response plus its Damper metadata.
 
-    SESSION 6's wrapper attaches :attr:`metadata` to the response as
-    ``resp.damper`` without mutating SDK response typing.
+    The wrapper attaches :attr:`metadata` to the response as ``resp.damper``
+    without mutating SDK response typing.
     """
 
     response: Any
@@ -200,10 +199,10 @@ def _accumulate_retry_cost(
 ) -> float | None:
     """Fold an accepted retry's cost into the cumulative total.
 
-    Once the cumulative cost is unknown it stays unknown for the logical request
-    (``SPEC.md`` SESSION 5 correction 3). An accepted retry can only have an
-    unknown ``next_retry_cost_usd`` when no ceiling is configured; a configured
-    ceiling denies unknown-cost retries before this point.
+    Once the cumulative cost is unknown it stays unknown for the logical
+    request. An accepted retry can only have an unknown ``next_retry_cost_usd``
+    when no ceiling is configured; a configured ceiling denies unknown-cost
+    retries before this point.
     """
     if retry_cost_so_far_usd is None or next_retry_cost_usd is None:
         return None
@@ -265,7 +264,7 @@ def _plan_after_failure(
         return _Decision(_Action.SURFACE, outcome=surfaced_outcome)
 
     # Retryable, but content already streamed to the caller: surface, never
-    # replay (SPEC.md section 15).
+    # replay.
     if stream_started:
         return _Decision(
             _Action.SURFACE, outcome=OUTCOME_STREAM_STARTED_FAILURE
@@ -412,7 +411,7 @@ def execute(
     """Run a synchronous logical request through the owned retry loop.
 
     ``attempt`` performs one provider attempt (SDK retries already disabled by
-    the caller in SESSION 6) and either returns the response or raises. Only
+    the caller) and either returns the response or raises. Only
     ``Exception`` subclasses are treated as provider failures; ``KeyboardInterrupt``,
     ``SystemExit``, and other ``BaseException``\\s propagate immediately with no
     retry, budget withdrawal, cost accounting, or sleep.

@@ -1,4 +1,4 @@
-"""Example smoke tests (SPEC section 21.7).
+"""Example smoke tests.
 
 The deterministic outage demo (``examples/02_outage_demo.py --fake``) is the CI
 gate: it must exit ``0`` and exits non-zero if any amplification invariant fails.

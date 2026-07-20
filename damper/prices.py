@@ -1,9 +1,9 @@
 """Anthropic model price table for retry cost estimation.
 
 This module hosts the default price table used by :mod:`damper.cost` for the
-per-request retry cost ceiling (SPEC.md section 13). Each entry carries input
-and output prices per million tokens along with a ``last_verified`` date. Users
-can override the table via :attr:`damper.Policy.price_table`.
+per-request retry cost ceiling. Each entry carries input and output prices per
+million tokens along with a ``last_verified`` date. Users can override the table
+via :attr:`damper.Policy.price_table`.
 
 Prices are a **safety guard** for the retry cost ceiling, **not billing truth**.
 The estimate exists to bound retry cost during outages, not to reconcile an

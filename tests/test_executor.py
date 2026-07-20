@@ -1,9 +1,9 @@
-"""Tests for :mod:`damper._executor` (SESSION 5).
+"""Tests for :mod:`damper._executor`.
 
-Covers the SPEC section 17 decision matrix and the SESSION 5 corrections:
+Covers the retry-decision matrix:
 
 * the core matrix runs against both ``execute`` and ``execute_async`` (async is
-  the primary path per SPEC section 6.1), driven by the shared decision helper;
+  the primary path), driven by the shared decision helper;
 * cost-ceiling denial happens before budget acquisition and never touches the
   budget, while budget denial goes through ``try_acquire_retry`` and increments
   ``denied_retry_attempts``;
@@ -14,7 +14,7 @@ Covers the SPEC section 17 decision matrix and the SESSION 5 corrections:
   failure;
 * async cancellation propagates with no retry, sleep, or budget side effect;
 * the final allowed attempt produces no cost, budget, RNG, or sleep side effect;
-* every Damper exception carries its SPEC section 9.2 metadata and ``__cause__``.
+* every Damper exception carries its metadata and ``__cause__``.
 
 No network access, no real sleeps (sleep is injected and captured), no provider
 API calls.
@@ -493,9 +493,9 @@ def test_unknown_cost_without_ceiling_reports_none(mode: str) -> None:
 
 @pytest.mark.parametrize("mode", MODES)
 def test_unknown_cost_with_ceiling_is_fail_closed(mode: str) -> None:
-    # SPEC section 13.4: an unestimable request (no model -> unknown cost) is
-    # fail-closed only when a ceiling is configured. The retry is denied before
-    # budget acquisition, and the projected cost is reported as unknown (None).
+    # An unestimable request (no model -> unknown cost) is fail-closed only when
+    # a ceiling is configured. The retry is denied before budget acquisition,
+    # and the projected cost is reported as unknown (None).
     budget = make_budget()
     sleeps: list[float] = []
     rng = RngCounter()
@@ -527,9 +527,9 @@ def test_unknown_cost_with_ceiling_is_fail_closed(mode: str) -> None:
 def test_unpriced_model_with_ceiling_is_fail_closed(mode: str) -> None:
     # A model present on the request but absent from the effective price table
     # yields an unknown next-retry cost, so a configured ceiling is fail-closed
-    # exactly like a missing model (SPEC section 13.4): the retry is denied
-    # before budget acquisition and the projected cost is reported as unknown
-    # (None). This exercises an explicit unknown model name, not a missing model.
+    # exactly like a missing model: the retry is denied before budget
+    # acquisition and the projected cost is reported as unknown (None). This
+    # exercises an explicit unknown model name, not a missing model.
     budget = make_budget()
     sleeps: list[float] = []
     rng = RngCounter()

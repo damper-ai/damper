@@ -1,9 +1,9 @@
 """Token estimation and retry cost ceiling.
 
-Local-only helpers for the per-request retry cost ceiling described in SPEC.md
-section 13. Cost estimation and ceiling logic are reliability-critical: they
-gate whether a retry is allowed to fire, so this module stays small and
-explicit and is hand-reviewed by the maintainer before release.
+Local-only helpers for the per-request retry cost ceiling. Cost estimation and
+ceiling logic are reliability-critical: they gate whether a retry is allowed to
+fire, so this module stays small and explicit and is hand-reviewed by the
+maintainer before release.
 
 Design stance
 -------------

@@ -1,4 +1,4 @@
-"""Streaming boundary tests (SESSION 6, SPEC section 15).
+"""Streaming boundary tests.
 
 Damper retries a streaming call only before the first content token. Once any
 content has streamed to the caller, a failure is surfaced during the caller's

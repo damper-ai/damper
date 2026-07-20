@@ -1,8 +1,7 @@
 """Smoke tests for :mod:`tests.fakes`.
 
-These verify only what SESSION 1 needs: that scripted outcomes are consumed in
-order, ``Ok`` returns its payload, and ``Err`` raises a fake provider error.
-Streaming and async fake behavior is not yet exercised.
+These verify the ``ScriptedFake`` basics: that scripted outcomes are consumed
+in order, ``Ok`` returns its payload, and ``Err`` raises a fake provider error.
 """
 
 from __future__ import annotations

@@ -1,8 +1,8 @@
-"""Public API surface smoke tests for SESSION 1.
+"""Public API surface smoke tests.
 
 These tests exist so accidental renames, missing exports, or changed defaults
-are caught immediately. The default values checked here mirror
-``.local/SPEC.md`` section 8.1 verbatim.
+are caught immediately. The default values checked here mirror the documented
+:class:`Policy` defaults verbatim.
 """
 
 from __future__ import annotations
@@ -71,8 +71,8 @@ def test_policy_is_frozen() -> None:
 
 
 def test_resilient_rejects_unsupported_client() -> None:
-    # resilient() is implemented as of SESSION 6. A plain object exposes no
-    # with_options(), so Damper cannot take retry ownership and refuses to wrap.
+    # A plain object exposes no with_options(), so Damper cannot take retry
+    # ownership and refuses to wrap.
     with pytest.raises(RetryOwnershipError):
         resilient(object())
 

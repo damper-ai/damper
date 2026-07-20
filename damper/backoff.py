@@ -1,9 +1,7 @@
 """Exponential backoff with full jitter and retry-after handling.
 
-Implements the backoff computation described in ``SPEC.md`` section 16 and the
-SESSION 3 design in ``.local/PLAYBOOK.md``: exponential growth with full jitter,
-capped at ``backoff_max``, yielding to a provider ``retry-after`` when present
-and enabled.
+Exponential growth with full jitter, capped at ``backoff_max``, yielding to a
+provider ``retry-after`` when present and enabled.
 
 Attempt numbering
 -----------------
@@ -18,9 +16,9 @@ Retry-after
 When ``respect_retry_after`` is true and ``retry_after`` is a finite value
 ``>= 0``, it is returned exactly: no jitter is applied and it is deliberately
 *not* clamped to ``cap``, because it is a provider instruction rather than a
-client-side backoff choice (``SPEC.md`` section 14.3 lists what still constrains
-it -- ``max_attempts``, the retry budget, the cost ceiling, and the per-attempt
-timeout -- and ``backoff_max`` is intentionally not among them). An invalid
+client-side backoff choice. What still constrains it is ``max_attempts``, the
+retry budget, the cost ceiling, and the per-attempt timeout; ``backoff_max`` is
+intentionally not among them. An invalid
 ``retry_after`` (non-finite or negative) falls back to computed full jitter.
 
 ``Retry-After`` header parsing and normalization are handled by the provider
