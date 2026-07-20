@@ -7,17 +7,13 @@
 
 **Reliability control for the Anthropic Python SDK.**
 
-> This README documents the current main branch. The latest released version is
-> v0.1.0.
+Damper is an open source Python reliability library. v0.1 provides budgeted,
+cost aware, and streaming safe retries for sync and async Anthropic clients.
 
-Damper is an LLM reliability library. v0.1 starts with retry control for the
-Anthropic Python SDK.
+It intercepts `messages.create()` and `messages.stream()`. Other client methods
+pass through unchanged.
 
-It supports `Anthropic` and `AsyncAnthropic`. It intercepts
-`messages.create()` and `messages.stream()`. Other client methods pass through
-unchanged.
-
-Damper is an independent open source project. It is not affiliated with,
+Damper is an independent open source project and is not affiliated with,
 sponsored by, or endorsed by Anthropic.
 
 ```python
