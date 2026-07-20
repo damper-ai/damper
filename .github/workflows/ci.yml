@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - name: Checkout
@@ -29,6 +29,53 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+
+      - name: Ruff
+        run: ruff check .
+
+      - name: Mypy
+        run: mypy .
+
+      - name: Pytest
+        run: pytest
+
+      - name: Fake outage demo
+        run: python examples/02_outage_demo.py --fake
+
+  anthropic-floor:
+    name: anthropic floor (0.30.0)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install package with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Pin Anthropic to the declared minimum
+        run: pip install anthropic==0.30.0
+
+      - name: Verify installed Anthropic version is exactly 0.30.0
+        run: |
+          python - <<'PY'
+          from importlib.metadata import version
+
+          installed = version("anthropic")
+          expected = "0.30.0"
+          if installed != expected:
+              raise SystemExit(
+                  f"expected anthropic {expected}, got {installed}"
+              )
+          print(f"anthropic {installed}")
+          PY
 
       - name: Ruff
         run: ruff check .
