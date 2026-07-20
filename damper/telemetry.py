@@ -50,7 +50,7 @@ Attribute names
 ---------------
 
 Damper treats ``damper.*`` attributes as its stable telemetry contract.
-``gen_ai.*`` attributes are compatibility mappings only and may evolve independently..
+``gen_ai.*`` attributes are compatibility mappings only and may evolve independently.
 """
 
 from __future__ import annotations
